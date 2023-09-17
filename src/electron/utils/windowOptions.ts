@@ -23,7 +23,7 @@ export const loadingOptions: any = {
 export const mainOptions: any = {
     icon: "public/icon.png",
     backgroundColor: "#292c36",
-    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
+    titleBarStyle: "default",
     trafficLightPosition: { x: 10, y: 12 }, // mac buttons
     show: false,
     webPreferences: {
