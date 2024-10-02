@@ -1,9 +1,8 @@
 <script lang="ts">
     import type { TabsObj } from "../../../types/Tabs"
-    import { activeShow, labelsDisabled, midiIn, showsCache } from "../../stores"
+    import { activeShow, labelsDisabled, showsCache } from "../../stores"
     import { _show } from "../helpers/shows"
     import Tabs from "../main/Tabs.svelte"
-    import Layout from "./tools/Layout.svelte"
     import Media from "./tools/Media.svelte"
     import Metadata from "./tools/Metadata.svelte"
     import Notes from "./tools/Notes.svelte"
@@ -11,12 +10,9 @@
 
     const tabs: TabsObj = {
         groups: { name: "tools.groups", icon: "groups" },
-        // WIP layout is no longer needed
-        // layout: { name: "tools.layout", icon: "layout" },
-        media: { name: "tools.media", icon: "media", disabled: true },
-        // audio: { name: "tools.audio", icon: "audio" },
-        metadata: { name: "tools.metadata", icon: "info" },
-        notes: { name: "tools.notes", icon: "notes" },
+        media: { name: "tools.media", icon: "media", remove: true },
+        metadata: { name: "tools.metadata", icon: "info", overflow: true },
+        notes: { name: "tools.notes", icon: "notes", overflow: true },
     }
     let active: string = Object.keys(tabs)[0]
 
@@ -43,18 +39,26 @@
     }
 
     // media
-    $: if (show || $midiIn) checkMedia()
+    // || $midiIn
+    $: if (show) checkMedia()
     function checkMedia() {
         let refs = _show("active").layouts().ref()
 
-        if (refs.find((ref) => ref.find((slide) => slide.data.background))) return (tabs.media.disabled = false)
-        if (refs.find((ref) => ref.find((slide) => slide.data.audio))) return (tabs.media.disabled = false)
-        if (refs.find((ref) => ref.find((slide) => slide.data.mics))) return (tabs.media.disabled = false)
+        let disableMedia = true
 
-        if (Object.keys(show?.midi || {}).length) return (tabs.media.disabled = false)
-        if (Object.values($midiIn).find((value: any) => value.shows.find((a) => a.id === $activeShow!.id))) return (tabs.media.disabled = false)
+        if (refs.find((ref) => ref.find((slide) => slide.data.background))) disableMedia = false
+        else if (refs.find((ref) => ref.find((slide) => slide.data.audio))) disableMedia = false
+        else if (refs.find((ref) => ref.find((slide) => slide.data.mics))) disableMedia = false
+        else if (refs.find((ref) => ref.find((slide) => slide.data.actions?.slideActions?.length))) disableMedia = false
+        // else if (Object.keys(show?.midi || {}).length) disableMedia = false
+        // else if (Object.values($midiIn).find((value: any) => value.shows?.find((a) => a.id === $activeShow?.id))) disableMedia = false
 
-        return (tabs.media.disabled = true)
+        tabs.media.remove = disableMedia
+        // could change page back, but could be useful to keep it open in some cases
+        // if (disableMedia && active === "media") active = Object.keys(tabs)[0]
+
+        // show metadata tab if media is disabled
+        tabs.metadata.overflow = !disableMedia
     }
 </script>
 
@@ -66,8 +70,6 @@
     {#if show}
         {#if active === "groups"}
             <SlideGroups />
-        {:else if active === "layout"}
-            <Layout />
         {:else if active === "media"}
             <div class="content">
                 <Media />
@@ -81,7 +83,7 @@
                 <Metadata />
             </div>
         {:else if active === "notes"}
-            <div class="content">
+            <div class="content" style="background-color: var(--primary-darker);">
                 <Notes on:edit={edit} value={note} />
             </div>
         {/if}
@@ -105,7 +107,7 @@
         overflow-x: hidden;
     }
 
-    .main.labels :global(.tabs button) {
+    /* .main.labels :global(.tabs button) {
         min-width: 50%;
-    }
+    } */
 </style>

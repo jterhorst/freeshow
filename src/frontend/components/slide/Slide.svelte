@@ -1,25 +1,46 @@
 <script lang="ts">
     import { onMount } from "svelte"
-    import type { MediaFit } from "../../../types/Main"
+    import { MAIN } from "../../../types/Channels"
+    import type { MediaStyle } from "../../../types/Main"
     import type { Media, Show, Slide, SlideData } from "../../../types/Show"
-    import { activeShow, activeTimers, checkedFiles, dictionary, driveData, fullColors, groupNumbers, groups, media, mediaFolders, outputs, overlays, refreshListBoxes, showsCache, slidesOptions, styles } from "../../stores"
+    import {
+        activePage,
+        activeTimers,
+        audioFolders,
+        checkedFiles,
+        dictionary,
+        driveData,
+        focusMode,
+        fullColors,
+        groups,
+        media,
+        mediaFolders,
+        outputs,
+        overlays,
+        refreshListBoxes,
+        refreshSlideThumbnails,
+        showsCache,
+        slidesOptions,
+        styles,
+    } from "../../stores"
+    import { wait } from "../../utils/common"
+    import { send } from "../../utils/request"
+    import { slideHasAction } from "../actions/actions"
     import MediaLoader from "../drawer/media/MediaLoader.svelte"
-    import Editbox from "../edit/Editbox.svelte"
+    import Editbox from "../edit/editbox/Editbox.svelte"
     import { getItemText } from "../edit/scripts/textStyle"
     import { clone } from "../helpers/array"
     import { getContrast } from "../helpers/color"
-    import { GetLayoutRef } from "../helpers/get"
-    import { checkMedia, getFileName } from "../helpers/media"
+    import { checkMedia, getFileName, getMediaStyle, getThumbnailPath, loadThumbnail, mediaSize, splitPath } from "../helpers/media"
     import { getActiveOutputs, getResolution } from "../helpers/output"
-    import { getMediaFilter } from "../helpers/showActions"
+    import { getGroupName } from "../helpers/show"
     import SelectElem from "../system/SelectElem.svelte"
     import Actions from "./Actions.svelte"
     import Icons from "./Icons.svelte"
     import Textbox from "./Textbox.svelte"
     import Zoomed from "./Zoomed.svelte"
-    import { MAIN } from "../../../types/Channels"
-    import { send } from "../../utils/request"
 
+    export let showId: string
     export let slide: Slide
     export let layoutSlide: SlideData
     export let layoutSlides: any[] = []
@@ -35,130 +56,132 @@
     export let icons: boolean = false
     export let noQuickEdit: boolean = false
     export let altKeyPressed: boolean = false
+    export let disableThumbnails: boolean = false
 
     $: viewMode = $slidesOptions.mode || "grid"
-
-    // let longestText: string = ""
-    // $: {
-    //   longestText = ""
-    //   slide.items.forEach((item) => {
-    //     if (item.text) {
-    //       let t = ""
-    //       item.text.forEach((text) => {
-    //         t += text.value
-    //       })
-    //       if (t.length > longestText.length) longestText = t
-    //     }
-    //   })
-    // }
-
     $: background = layoutSlide.background ? show.media[layoutSlide.background] : null
 
     let ghostBackground: Media | null = null
-    $: if (!background) {
+    // don't show ghost backgrounds if more than 25 slides (because of loading!)
+    $: if (!background && layoutSlides.length < 25) {
         ghostBackground = null
         layoutSlides.forEach((a, i) => {
             if (i <= index) {
-                if (a.actions?.clearBackground && (!a.disabled || i === index)) ghostBackground = null
+                if (slideHasAction(a.actions, "clear_background") && (!a.disabled || i === index)) ghostBackground = null
                 else if (a.background && !a.disabled) ghostBackground = show.media[a.background]
+                if (a.background && show.media[a.background]?.loop === false) ghostBackground = null
             }
         })
     }
 
+    // show loop icon if many backgruounds
+    $: backgroundCount = layoutSlides.reduce((count, layoutRef) => (count += layoutRef.background ? 1 : 0), 0)
+
+    // auto find media
     $: bg = clone(background || ghostBackground)
     $: cloudId = $driveData.mediaId
     $: if (bg) locateBackground()
-    async function locateBackground() {
-        let showId = $activeShow!.id
-        let mediaId = layoutSlide.background!
+    function locateBackground() {
+        if (!background || !bg?.path) return
 
-        let checkCloud = cloudId && cloudId !== "default"
+        let mediaId = layoutSlide.background!
+        let folders = Object.values($mediaFolders).map((a) => a.path!)
+        locateFile(mediaId, bg.path, folders, bg)
+    }
+
+    // auto find audio
+    $: audioIds = clone(layoutSlide.audio || [])
+    $: if (audioIds.length) locateAudio()
+    function locateAudio() {
+        let showMedia = $showsCache[showId]?.media
+        let folders = Object.values($audioFolders).map((a) => a.path!)
+
+        audioIds.forEach(async (audioId) => {
+            let audio = showMedia[audioId]
+            if (!audio?.path) return
+            locateFile(audioId, audio.path, folders, audio)
+        })
+    }
+
+    async function locateFile(fileId: string, path: string, folders: string[], mediaObj: any) {
+        if (!path) return
+
         if (checkCloud) {
-            let cloudBg = bg.cloud?.[cloudId]
-            if (cloudBg) bg.path = cloudBg
+            let cloudBg = mediaObj.cloud?.[cloudId]
+            if (cloudBg) path = cloudBg
         }
 
-        if (!background || $checkedFiles.includes(bg.path)) return
+        let id = `${path}_${fileId}`
+        if ($checkedFiles.includes(id)) return
 
-        checkedFiles.set([...$checkedFiles, bg.path])
-        let exists = (await checkMedia(bg.path)) === "true"
+        checkedFiles.set([...$checkedFiles, id])
+        let exists = (await checkMedia(path)) === "true"
 
         // check for other potentially mathing mediaFolders
         if (!exists) {
-            let fileName = getFileName(bg.path)
-            send(MAIN, ["LOCATE_MEDIA_FILE"], { fileName, folders: Object.values($mediaFolders).map((a) => a.path), ref: { showId, mediaId, cloudId: checkCloud ? cloudId : "" } })
+            let fileName = getFileName(path)
+            send(MAIN, ["LOCATE_MEDIA_FILE"], { fileName, splittedPath: splitPath(path), folders, ref: { showId, mediaId: fileId, cloudId: checkCloud ? cloudId : "" } })
             return
         }
 
-        if (!checkCloud) return
+        if (!checkCloud || !$showsCache[showId]?.media?.[fileId] || $showsCache[showId].media[fileId].cloud?.[cloudId] === path) return
 
-        // set cloud path to bg.path
+        // set cloud path to path
         showsCache.update((a) => {
-            let media = a[showId].media[mediaId]
-            if (!media.cloud) a[showId].media[mediaId].cloud = {}
-            a[showId].media[mediaId].cloud![cloudId] = bg.path
+            let media = a[showId].media[fileId]
+            if (!media.cloud) a[showId].media[fileId].cloud = {}
+            a[showId].media[fileId].cloud![cloudId] = path
 
             return a
         })
     }
 
     let duration: number = 0
-    // $: full_name = background ? background.path.substring(background.path.lastIndexOf("\\") + 1) : ""
-    // $: name = full_name.slice(0, full_name.lastIndexOf("."))
 
-    let filter: string = ""
-    let flipped: boolean = false
-    let fit: MediaFit = "contain"
+    // CLOUD BG
+    let cloudBg = ""
+    $: checkCloud = cloudId && cloudId !== "default"
+    $: if (checkCloud) cloudBg = bg?.cloud?.[cloudId] || ""
 
-    $: if (bg?.path) {
-        // TODO: use show filter if existing
-        let path: string = bg?.path
-        filter = getMediaFilter(path)
-        flipped = $media[path]?.flipped || false
-        fit = $media[path]?.fit || "contain"
+    // LOAD BACKGROUND
+    $: bgPath = cloudBg || bg?.path || bg?.id || ""
+    $: if (bgPath && !disableThumbnails) loadBackground()
+    let thumbnailPath: string = ""
+    async function loadBackground() {
+        if (ghostBackground) {
+            if (index === 1) {
+                // create image (if not created) when it's on slide 2 (slide 1 is the original)
+                thumbnailPath = await loadThumbnail(bgPath, mediaSize.drawerSize)
+            } else {
+                // load ghost thumbnails (wait a bit to reduce loading lag)
+                await wait(100)
+                thumbnailPath = getThumbnailPath(bgPath, mediaSize.drawerSize)
+            }
+            return
+        }
+
+        // when zoomed in show the full res image
+        // if (columns < 3 && $activePage !== "edit") {
+        //     backgroundPath = bgPath
+        //     return
+        // }
+
+        let newPath = await loadThumbnail(bgPath, mediaSize.slideSize)
+        if (newPath) thumbnailPath = newPath
     }
+
+    let mediaStyle: MediaStyle = {}
+    $: if (bg?.path) mediaStyle = getMediaStyle($media[bg.path], currentStyle)
 
     $: group = slide.group
-    $: {
-        if (slide.globalGroup && $groups[slide.globalGroup]) {
-            group = $groups[slide.globalGroup].default ? $dictionary.groups?.[$groups[slide.globalGroup].name] : $groups[slide.globalGroup].name
-            color = $groups[slide.globalGroup].color
-            // history({ id: "UPDATE", save: false, newData: { data: group, key: "slides", keys: [layoutSlide.id], subkey: "group" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
-            // history({ id: "UPDATE", save: false, newData: { data: color, key: "slides", keys: [layoutSlide.id], subkey: "color" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
-        }
+    $: if (slide.globalGroup && $groups[slide.globalGroup]) {
+        group = $groups[slide.globalGroup].default ? $dictionary.groups?.[$groups[slide.globalGroup].name] : $groups[slide.globalGroup].name
+        color = $groups[slide.globalGroup].color
+        // history({ id: "UPDATE", save: false, newData: { data: group, key: "slides", keys: [layoutSlide.id], subkey: "group" }, oldData: { id: showId }, location: { page: "show", id: "show_key" } })
+        // history({ id: "UPDATE", save: false, newData: { data: color, key: "slides", keys: [layoutSlide.id], subkey: "color" }, oldData: { id: showId }, location: { page: "show", id: "show_key" } })
     }
 
-    $: name = getGroupName(layoutSlide.id)
-    // dynamic counter
-    function getGroupName(slideID: string) {
-        let name = group
-        if (name !== null && name !== undefined) {
-            if (!name.length) name = "—"
-            let added: any = {}
-            if ($groupNumbers) {
-                // different slides with same name
-                Object.entries(show.slides).forEach(([id, a]: any) => {
-                    if (!a) return
-                    if (added[a.group]) {
-                        added[a.group]++
-                        if (id === slideID) name += " " + added[a.group]
-                    } else added[a.group] = 1
-                })
-
-                // same group count
-                added = {}
-                GetLayoutRef().forEach((a: any, i: number) => {
-                    if (a.type === "parent") {
-                        if (added[a.id]) {
-                            added[a.id]++
-                            if (i === index) name += " (" + added[a.id] + ")"
-                        } else added[a.id] = 1
-                    }
-                })
-            }
-        }
-        return name
-    }
+    $: name = getGroupName({ show, showId }, layoutSlide.id, group, index)
 
     // quick edit
     let html: string = ""
@@ -181,7 +204,7 @@
     function update() {
         // html = `<div class="align" style="${item.align}">`
         html = ""
-        slide.items[longest].lines?.forEach((line) => {
+        slide.items[longest]?.lines?.forEach((line) => {
             line.text?.forEach((a) => {
                 html += a.value
             })
@@ -191,28 +214,20 @@
 
     // || $showsCache[active].slides
     let textElem: any
-    $: {
-        if (textElem && html !== previousHTML) {
-            previousHTML = html
-            setTimeout(() => {
-                // console.log(html)
-                // let text = _shows([active]).slides([slide]).items([index]).get("text")
-                // let textItems = getItems(textElem.children)
-                // let values: any = {}
-                // if (textItems.length) values = text?.forEach((a, i) => (a.value = textItems[i]))
-                // _shows([active]).slides([slide]).items([index]).set({key: "text", values})
-                showsCache.update((a) => {
-                    let lines = a[$activeShow!.id].slides[layoutSlide.id].items[longest].lines
-                    let textItems = getItems(textElem.children)
-                    if (textItems.length) {
-                        lines?.forEach((line) => {
-                            line.text?.forEach((a, i) => (a.value = textItems[i]))
-                        })
-                    }
-                    return a
-                })
-            }, 10)
-        }
+    $: if (textElem && html !== previousHTML) {
+        previousHTML = html
+        setTimeout(() => {
+            showsCache.update((a) => {
+                let lines = a[showId].slides[layoutSlide.id].items[longest]?.lines || []
+                let textItems = getItems(textElem.children)
+                if (textItems.length) {
+                    lines.forEach((line) => {
+                        line.text?.forEach((a, i) => (a.value = textItems[i]))
+                    })
+                }
+                return a
+            })
+        }, 10)
     }
 
     function getItems(children: any): any[] {
@@ -230,12 +245,10 @@
     }
     function checkItem(item: any) {
         if (item?.type !== "timer") return
-        console.log($activeTimers, item)
 
         $activeTimers.forEach((a, i) => {
-            if (a.showId === $activeShow?.id && a.slideId === layoutSlide.id && a.id === item.timer.id) timer.push(i)
+            if (a.showId === showId && a.slideId === layoutSlide.id && a.id === item.timer.id) timer.push(i)
         })
-        console.log(timer)
     }
 
     $: resolution = getResolution(slide?.settings?.resolution, { $outputs, $styles })
@@ -257,6 +270,7 @@
 
     $: slideFilter = ""
     $: if (!layoutSlide.filterEnabled || layoutSlide.filterEnabled?.includes("background")) getSlideFilter()
+    else slideFilter = ""
     function getSlideFilter() {
         slideFilter = ""
         if (layoutSlide.filter) slideFilter += "filter: " + layoutSlide.filter + ";"
@@ -268,14 +282,11 @@
             refreshListBoxes.set(-1)
         }, 100)
     }
+
+    // correct view order based on arranged order in Items.svelte (?.reverse())
+    $: itemsList = clone(slide.items) || []
 </script>
 
-<!-- TODO: faster loading ? lazy load images? -->
-<!-- TODO: noQuickEdit -->
-<!-- https://svelte.dev/repl/3bf15c868aa94743b5f1487369378cf3?version=3.21.0 -->
-<!-- animate:flip -->
-<!-- class:right={overIndex === index && (!selected.length || index > selected[0])}
-class:left={overIndex === index && (!selected.length || index <= selected[0])} -->
 <div class="main" class:active class:focused style="{output?.color ? 'outline: 2px solid ' + output.color + ';' : ''}width: {viewMode === 'grid' || viewMode === 'simple' || noQuickEdit ? 100 / columns : 100}%;">
     <!-- group box -->
     {#if $fullColors}
@@ -283,17 +294,16 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
     {/if}
     <!-- icons -->
     {#if icons && !altKeyPressed && viewMode !== "simple"}
-        <Icons {timer} {layoutSlide} {background} {duration} {columns} {index} style={viewMode === "lyrics" ? "padding-top: 23px;" : ""} />
+        <Icons {timer} {layoutSlide} {background} {backgroundCount} {duration} {columns} {index} style={viewMode === "lyrics" ? "padding-top: 23px;" : ""} />
         <Actions {columns} {index} actions={layoutSlide.actions || {}} />
     {/if}
     <!-- content -->
-    <div class="slide context #{name === null ? 'slideChild' : 'slide'}" class:disabled={layoutSlide.disabled} class:afterEnd={endIndex !== null && index > endIndex} {style} tabindex={0} on:click>
+    <div class="slide context #{show.locked ? 'default' : $focusMode ? 'slideFocus' : name === null ? 'slideChild' : 'slide'}" class:disabled={layoutSlide.disabled} class:afterEnd={endIndex !== null && index > endIndex} {style} tabindex={0} on:click>
         <div class="hover overlay" />
         <!-- <DropArea id="slide" hoverTimeout={0} file> -->
         <div style="width: 100%;height: 100%;">
-            <SelectElem style={colorStyle} id="slide" data={{ index }} draggable trigger={list ? "column" : "row"}>
+            <SelectElem style={colorStyle} id="slide" data={{ index, showId }} draggable={!$focusMode && !show.locked} onlyRightClickSelect={$focusMode} selectable={!show.locked} trigger={list ? "column" : "row"}>
                 <!-- TODO: tab select on enter -->
-                <!-- resolution={{ width: resolution.width * zoom, height: resolution.height * zoom }} -->
                 {#if viewMode === "lyrics" && !noQuickEdit}
                     <!-- border-bottom: 1px dashed {color}; -->
                     <div class="label" title={name || ""} style="color: {color};margin-bottom: 5px;">
@@ -311,24 +321,15 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
                     relative={viewMode === "lyrics" && !noQuickEdit}
                 >
                     {#if !altKeyPressed && bg && (viewMode !== "lyrics" || noQuickEdit)}
-                        <div class="background" style="zoom: {1 / ratio};{slideFilter}" class:ghost={!background}>
-                            <MediaLoader
-                                name={$dictionary.error?.load}
-                                path={bg.path || bg.id || ""}
-                                cameraGroup={bg.cameraGroup || ""}
-                                type={bg.type !== "player" ? bg.type : null}
-                                loadFullImage={!!(bg.path || bg.id)}
-                                {filter}
-                                {flipped}
-                                {fit}
-                                bind:duration
-                            />
-                        </div>
+                        {#key $refreshSlideThumbnails}
+                            <div class="background" style="zoom: {1 / ratio};{slideFilter}" class:ghost={!background}>
+                                <MediaLoader name={$dictionary.error?.load} ghost={!background} path={bgPath} {thumbnailPath} cameraGroup={bg.cameraGroup || ""} type={bg.type !== "player" ? bg.type : null} {mediaStyle} bind:duration getDuration />
+                                <!-- loadFullImage={!!(bg.path || bg.id)} -->
+                            </div>
+                        {/key}
                     {/if}
-                    <!-- TODO: check if showid exists in shows -->
                     {#if slide.items}
-                        {#each slide.items as item, i}
-                            <!-- TODO: lyrics zoom on text -->
+                        {#each itemsList as item, i}
                             {#if item && (viewMode !== "lyrics" || item.type === undefined || ["text", "events", "list"].includes(item.type))}
                                 <Textbox
                                     filter={layoutSlide.filterEnabled?.includes("foreground") ? layoutSlide.filter : ""}
@@ -339,7 +340,7 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
                                     {ratio}
                                     slideIndex={index}
                                     ref={{
-                                        showId: $activeShow?.id,
+                                        showId,
                                         slideId: layoutSlide.id,
                                         id: layoutSlide.id,
                                     }}
@@ -360,6 +361,8 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
                     {/if}
                 </Zoomed>
                 {#if viewMode === "simple"}
+                    <!-- WIP get any enabled output with maxLines, not just first one... -->
+                    <!-- Object.values($outputs).find((a) => $styles[a.style || ""]?.lines) -->
                     {#if output?.maxLines}
                         <div class="lineProgress">
                             <div class="fill" style="width: {((output.line + 1) / output.maxLines) * 100}%;background-color: {output.color};" />
@@ -369,8 +372,8 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
                     <div title={name || ""} style="height: 2px;" />
                 {:else if viewMode !== "lyrics" || noQuickEdit}
                     <!-- style="width: {resolution.width * zoom}px;" -->
-                    <div class="label" title={name || ""} style={$fullColors ? `background-color: ${color};color: ${getContrast(color || "")};` : `border-bottom: 2px solid ${color};`}>
-                        {#if name === null && $fullColors}
+                    <div class="label" title={name || ""} style={$fullColors ? `background-color: ${color};color: ${getContrast(color || "")};` : `border-bottom: 2px solid ${color || "var(--primary-darkest)"};`}>
+                        {#if name === null && $fullColors && $activePage === "show"}
                             <!-- WIP this works fine without full colors, but is it neccesary? (UI vs UX) -->
                             <div class="childLink" style="background-color: {color};" class:full={$fullColors} />
                         {/if}
@@ -379,7 +382,7 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
                                 <div class="fill" style="width: {((output.line + 1) / output.maxLines) * 100}%;background-color: {output.color};" />
                             </div>
                         {/if}
-                        {#if slide.notes && icons}<p class="notes">{slide.notes}</p>{/if}
+                        {#if slide.notes && icons}<p class="notes" title={slide.notes}>{slide.notes}</p>{/if}
                         <!-- <div class="label" title={name || ""} style="border-bottom: 2px solid {color};"> -->
                         <!-- font-size: 0.8em; -->
                         <span style="position: absolute;display: contents;">{index + 1}</span>
@@ -398,9 +401,9 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
         <div class="quickEdit" style="font-size: {(-1.1 * $slidesOptions.columns + 12) / 6}em;" data-index={index}>
             {#key $refreshListBoxes >= 0 && $refreshListBoxes !== index}
                 {#if slide.items}
-                    {#each slide.items as item, itemIndex}
+                    {#each itemsList as item, itemIndex}
                         {#if item.lines}
-                            <Editbox {item} ref={{ showId: $activeShow?.id, id: layoutSlide.id }} editIndex={index} index={itemIndex} plain />
+                            <Editbox {item} ref={{ showId, id: layoutSlide.id }} editIndex={index} index={itemIndex} plain />
                         {/if}
                     {/each}
                 {/if}
@@ -419,7 +422,7 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
 
     .slide {
         /* padding: 3px; */
-        background-color: var(--primary-darker);
+        background-color: var(--primary-darkest);
         z-index: 0;
         outline-offset: 0;
         width: 100%;
@@ -444,7 +447,8 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
         /* outline: 3px solid var(--secondary); */
         outline: 2px solid var(--secondary);
         outline-offset: -1px;
-        z-index: 2;
+        /* this z-index causes the button title to show behind! */
+        /* z-index: 2; */
     }
 
     .group_box {
@@ -513,12 +517,12 @@ class:left={overIndex === index && (!selected.length || index <= selected[0])} -
         left: 0;
         bottom: 0;
         transform: translate(-100%, 100%);
-        width: 10px;
+        width: 8px;
         height: 2px;
     }
     .childLink.full {
         transform: translate(-100%, 0);
-        height: 25px;
+        height: 24px;
     }
 
     .lineProgress {

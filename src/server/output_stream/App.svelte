@@ -4,18 +4,14 @@
     import { io } from "socket.io-client"
 
     let socket = io()
-    // let imgElem: any
 
     socket.on("OUTPUT_STREAM", (msg) => {
         switch (msg.channel) {
             case "STREAM":
-                // if (!imgElem) return
+                let timeSinceSent = Date.now() - msg.data.time
+                if (timeSinceSent > 100) return // skip frames if overloaded
 
                 capture = msg.data
-
-                // const base64 = msg.data?.base64
-                // imgElem.src = base64
-
                 break
         }
     })
@@ -94,8 +90,6 @@
 
 <div class="center" bind:offsetWidth={width} bind:offsetHeight={height}>
     <canvas class:imgHeight style="aspect-ratio: {capture?.size?.width || 16}/{capture?.size?.height || 9};" class="previewCanvas" bind:this={canvas} />
-    <!-- <img class:imgHeight bind:this={imgElem} /> -->
-    <!-- on:error={() => (imgElem.style.display = "none")} -->
 </div>
 
 {#if clicked}
@@ -129,8 +123,8 @@
         font-family: system-ui;
         font-size: 1.5em;
 
-        height: 100svh;
-        width: 100svw;
+        height: 100%;
+        width: 100%;
 
         overflow: hidden;
     }

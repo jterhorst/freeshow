@@ -30,6 +30,7 @@ export function convertChordPro(data: any) {
 
             let slides: Slide[] = [clone(defaultSlide)]
             let metadata: any = {}
+            let extraMetadata: string[] = []
             let notes: string = ""
 
             let newSection: boolean = false
@@ -80,6 +81,11 @@ export function convertChordPro(data: any) {
                         return
                     }
 
+                    if (line.includes("{") && line.includes(":")) {
+                        extraMetadata.push(line.replace("{", "").replace("}", ""))
+                        return
+                    }
+
                     // Formatting
                     // {comment: Chorus}
 
@@ -89,7 +95,7 @@ export function convertChordPro(data: any) {
                     if (isChorus) group = "chorus"
                     // else slides[slides.length - 1].globalGroup = "verse"
 
-                    let groupId = group || Object.keys(get(dictionary).groups).find((a) => line.toLowerCase().includes(a.replaceAll("_", "-")))
+                    let groupId = group || Object.keys(get(dictionary).groups || {}).find((a) => line.toLowerCase().includes(a.replaceAll("_", "-")))
 
                     if (groupId) {
                         slides[slides.length - 1].globalGroup = groupId
@@ -136,6 +142,11 @@ export function convertChordPro(data: any) {
                 let slideItems = slides[slides.length - 1].items
                 if (!slideItems.length) slideItems.push({ lines: [], style: "left:50px;top:120px;width:1820px;height:840px;" })
                 slideItems[slideItems.length - 1].lines!.push({ align: "", text: [{ value: text, style: "" }], chords })
+            }
+
+            if (extraMetadata.length) {
+                if (notes.length) notes += "\n\n"
+                notes += extraMetadata.join("\n")
             }
 
             let show = createShow({ slides, metadata, name, notes })

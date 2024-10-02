@@ -1,6 +1,6 @@
 import { get } from "svelte/store"
 import { uid } from "uid"
-import { activeShow, shows as allShows, driveData, showsCache } from "../../stores"
+import { activeFocus, activeShow, shows as allShows, driveData, focusMode, showsCache } from "../../stores"
 import { addToPos } from "./mover"
 import { clone } from "./array"
 // import { loadShows } from "./setShow"
@@ -11,7 +11,8 @@ export function _show(id: any = "active") {
     // await loadShows(ids)
     let shows: any = get(showsCache)
     // set id to active show
-    if (id === "active" && get(activeShow) !== null && (get(activeShow)!.type === undefined || get(activeShow)!.type === "show")) id = get(activeShow)!.id
+    if (id === "active" && get(focusMode) && get(showsCache)[get(activeFocus).id]) id = get(activeFocus).id
+    else if (id === "active" && get(activeShow) !== null && (get(activeShow)!.type === undefined || get(activeShow)!.type === "show")) id = get(activeShow)!.id
 
     return {
         /** Get key value in shows of leave blank for full show */
@@ -79,10 +80,13 @@ export function _show(id: any = "active") {
                 if (!shows[id]) return []
                 if (!slideIds.length && shows[id].slides) slideIds = Object.keys(shows[id].slides)
                 slideIds.forEach((slideId) => {
-                    if (key) a.push(shows[id].slides[slideId][key])
+                    let slide = clone(shows[id].slides[slideId])
+                    if (!slide) return
+
+                    if (key) a.push(slide[key])
                     else {
-                        a.push(shows[id].slides[slideId])
-                        if (addId && a[a.length - 1]) a[a.length - 1].id = slideId
+                        if (addId) slide.id = slideId
+                        a.push(slide)
                     }
                 })
                 return a
@@ -93,6 +97,8 @@ export function _show(id: any = "active") {
                 showsCache.update((a: any) => {
                     if (!slideIds.length) slideIds = Object.keys(a[id].layouts)
                     slideIds.forEach((slideId) => {
+                        if (!a[id].slides[slideId]) return
+
                         prev.push(a[id].slides[slideId][key])
                         if (value === undefined) delete a[id].slides[slideId][key]
                         else a[id].slides[slideId][key] = value
@@ -140,12 +146,16 @@ export function _show(id: any = "active") {
                 /** Get slides items */
                 get: (key: string | null = null, addId: boolean = true) => {
                     let a: any[] = []
-                    if (!slideIds.length) slideIds = Object.keys(shows[id]?.slides || {})
+                    if (!shows[id]) return []
+                    if (!slideIds.length) slideIds = Object.keys(shows[id].slides || {})
                     slideIds.forEach((slideId, i) => {
                         a.push([])
+                        if (!shows[id].slides[slideId]) return
+
                         // if (!indexes.length) a[i].push(...shows[id].slides[slideId].items)
                         if (!indexes.length) indexes = [...Object.keys(shows[id].slides[slideId].items)] as any
                         indexes.forEach((index) => {
+                            if (!shows[id].slides[slideId]?.items) return
                             if (key) a[i].push(shows[id].slides[slideId].items[index][key])
                             else {
                                 a[i].push({ ...shows[id].slides[slideId].items[index] })
@@ -166,6 +176,7 @@ export function _show(id: any = "active") {
                             if (!a[id].slides[slideId]) return
                             if (!indexes.length) indexes = [...Object.keys(shows[id].slides[slideId].items)] as any
                             indexes.forEach((index, i) => {
+                                let value = values[i] || values[0]
                                 if (key) {
                                     if (!a[id].slides[slideId].items[index]) return
 
@@ -173,14 +184,15 @@ export function _show(id: any = "active") {
                                         let splitted = key.split(".")
                                         prev.values.push(a[id].slides[slideId].items[index][splitted[0]]?.[splitted[1]] ? clone(a[id].slides[slideId].items[index][splitted[0]][splitted[1]]) : null)
                                         if (!a[id].slides[slideId].items[index][splitted[0]]) a[id].slides[slideId].items[index][splitted[0]] = {}
-                                        a[id].slides[slideId].items[index][splitted[0]][splitted[1]] = values[i] || values[0]
+                                        a[id].slides[slideId].items[index][splitted[0]][splitted[1]] = value
                                     } else {
                                         prev.values.push(a[id].slides[slideId].items[index][key] ? clone(a[id].slides[slideId].items[index][key]) : null)
-                                        a[id].slides[slideId].items[index][key] = values[i] || values[0]
+                                        if (value === undefined) delete a[id].slides[slideId].items[index][key]
+                                        else a[id].slides[slideId].items[index][key] = value
                                     }
                                 } else {
                                     prev.values.push(a[id].slides[slideId].items[index] ? clone(a[id].slides[slideId].items[index]) : null)
-                                    a[id].slides[slideId].items[index] = values[i] || values[0]
+                                    a[id].slides[slideId].items[index] = value
                                 }
                             })
                         })
@@ -195,7 +207,8 @@ export function _show(id: any = "active") {
                     showsCache.update((a: any) => {
                         slideIds.forEach((slideId) => {
                             items.forEach((item: any) => {
-                                if (a[id]) a[id].slides[slideId].items.push(item)
+                                if (!a[id]?.slides?.[slideId]) return
+                                a[id].slides[slideId].items.push(item)
                             })
                         })
 
@@ -207,9 +220,12 @@ export function _show(id: any = "active") {
                 remove: () => {
                     let prev: any = []
                     showsCache.update((a: any) => {
+                        if (!a[id]) return a
                         if (!slideIds.length) slideIds = Object.keys(a[id].slides)
                         slideIds.forEach((slideId) => {
                             indexes.forEach((index) => {
+                                if (!a[id].slides[slideId]) return
+
                                 prev.push(a[id].slides[slideId].items[index])
                                 a[id].slides[slideId].items.splice(index, 1)
                             })
@@ -228,6 +244,7 @@ export function _show(id: any = "active") {
                         if (!slideIds.length && shows[id]?.slides) slideIds = Object.keys(shows[id].slides || {})
                         slideIds.forEach((slideId, i) => {
                             a.push([])
+                            if (!shows[id].slides[slideId]) return
                             if (!indexes.length) indexes = Object.keys(shows[id].slides[slideId].items) as any
                             indexes.forEach((index) => {
                                 if (!lines.length) lines = Object.keys(shows[id].slides[slideId].items[index]?.lines || {})
@@ -282,7 +299,7 @@ export function _show(id: any = "active") {
                             slideIds.forEach((slideId) => {
                                 indexes.forEach((index) => {
                                     items.forEach((item: any, i: number) => {
-                                        // WIP
+                                        if (!a[id].slides[slideId]) return
                                         a[id].slides[slideId].items[index].lines[lineIndexes[i]] = item
                                     })
                                 })
@@ -299,6 +316,7 @@ export function _show(id: any = "active") {
                             if (!slideIds.length) slideIds = Object.keys(a[id].slides)
                             slideIds.forEach((slideId) => {
                                 indexes.forEach((index) => {
+                                    if (!shows[id].slides[slideId]) return
                                     if (!lines.length) lines = Object.keys(shows[id].slides[slideId].items[index].lines)
                                     lines.forEach((line) => {
                                         prev.lineIndexes.push(line)
@@ -336,13 +354,13 @@ export function _show(id: any = "active") {
             /** Get full ref layout */
             ref: () => {
                 let a: any[] = []
-                if (shows[id]) {
+                if (shows[id]?.layouts) {
                     if (layoutIds === "active") layoutIds = [shows[id].settings.activeLayout]
                     else if (!layoutIds.length) layoutIds = Object.keys(shows[id].layouts)
                     layoutIds.forEach((layoutId: any, i: number) => {
                         a.push([])
                         let layoutIndex: number = -1
-                        shows[id].layouts[layoutId].slides.forEach((layoutSlide: any, index: number) => {
+                        shows[id].layouts[layoutId]?.slides?.forEach((layoutSlide: any, index: number) => {
                             if (!shows[id].slides[layoutSlide.id]) {
                                 console.log("MISSING SLIDE")
                                 return
@@ -401,6 +419,7 @@ export function _show(id: any = "active") {
             set: ({ key, value }: any) => {
                 let prev: any[] = []
                 showsCache.update((a: any) => {
+                    if (!a[id]) return a
                     if (layoutIds === "active") layoutIds = [shows[id].settings.activeLayout]
                     else if (!layoutIds.length) layoutIds = Object.keys(shows[id].layouts)
                     layoutIds.forEach((layoutId: any) => {
@@ -521,6 +540,7 @@ export function _show(id: any = "active") {
                     // let prev: any = { indexes: [], layouts: [] }
                     let prev: any = {}
                     showsCache.update((a: any) => {
+                        if (!a[id]) return a
                         if (layoutIds === "active") layoutIds = [shows[id].settings.activeLayout]
                         else if (!layoutIds.length) layoutIds = Object.keys(shows[id].layouts)
                         layoutIds.forEach((layoutId: any, i: number) => {

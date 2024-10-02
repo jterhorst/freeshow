@@ -22,7 +22,7 @@
     let currentVariable = clone($variables[variableId] || DEFAULT_VARIABLE)
 
     function updateValue(e: any, key: string) {
-        let value = e?.target?.value || e
+        let value = e?.target?.value ?? e
         if (!value) return
 
         currentVariable[key] = value
@@ -34,11 +34,11 @@
     }
 </script>
 
-<CombinedInput>
+<CombinedInput textWidth={25}>
     <p><T id="inputs.name" /></p>
     <TextInput value={currentVariable.name} on:change={(e) => updateValue(e, "name")} />
 </CombinedInput>
-<CombinedInput>
+<CombinedInput textWidth={25}>
     <p><T id="clock.type" /></p>
-    <Dropdown disabled={existing} value={types.find((a) => a.id === currentVariable.type)?.name} options={types} on:click={(e) => updateValue(e.detail.id, "type")} />
+    <Dropdown disabled={existing} value={types.find((a) => a.id === currentVariable.type)?.name || "—"} options={types} on:click={(e) => updateValue(e.detail.id, "type")} />
 </CombinedInput>

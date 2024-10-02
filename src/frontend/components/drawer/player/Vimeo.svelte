@@ -1,7 +1,9 @@
 <script>
     import Player from "@vimeo/player"
-    import { currentWindow, theme, themes } from "../../../stores"
+    import { currentWindow, theme, themes, volume } from "../../../stores"
     import { OUTPUT } from "../../../../types/Channels"
+    import { createEventDispatcher } from "svelte"
+    import { send } from "../../../utils/request"
 
     export let videoData = { paused: false, muted: true, loop: false, duration: 0 }
     export let videoTime = 0
@@ -23,6 +25,7 @@
         // byline: false,
     }
 
+    let dispatch = createEventDispatcher()
     let iframe = null
     let player = null
     let loaded = false
@@ -47,6 +50,7 @@
 
         videoData.paused = false
         seekTo(videoTime)
+        dispatch("loaded", true)
 
         player.on("play", () => (paused = false))
         player.on("pause", () => (paused = true))
@@ -89,7 +93,7 @@
                 if (isPlaying) videoData.paused = false
                 seeking = false
 
-                if (outputId) window.api.send(OUTPUT, { channel: "MAIN_VIDEO", data: { id: outputId, time: videoTime } })
+                if (outputId) send(OUTPUT, ["MAIN_TIME"], { [outputId]: videoTime })
             }, 800)
         }, 100)
     }
@@ -100,12 +104,16 @@
         videoData.paused = paused
         if (preview) player.getCurrentTime((time) => (videoTime = time.duration))
     }
+
+    // update volume based on global slider value
+    $: if (!preview && $volume !== undefined && player) updateVolume()
+    function updateVolume() {
+        player.setVolume($volume)
+    }
 </script>
 
 <div class="main" class:hide={!id}>
-    <!-- https://www.youtube.com/watch?v=rfxnmIPCzIc -->
     {#if id}
-        <!-- <YouTube class="yt" videoId={id} {options} on:ready={onReady} on:stateChange={change} /> -->
         <!-- TODO: looping vimeo video will reload the video -->
         <iframe
             bind:this={iframe}
@@ -121,11 +129,6 @@
             height="360"
             frameborder="0"
         />
-        <!-- <p><a href="https://vimeo.com/426363743">Jesus, Only Jesus</a> from <a href="https://vimeo.com/ridgecrestbaptist">Ridgecrest Baptist Church</a> on <a href="https://vimeo.com">Vimeo</a>.</p> -->
-        <!-- {:else}
-    [[[Type video url/id into search area!]]] -->
-        <!-- {:else}
-    <YouTube class="yt" videoId={id} {options} on:ready={onReady} /> -->
     {/if}
 </div>
 

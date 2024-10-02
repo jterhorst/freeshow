@@ -22,6 +22,7 @@
 
         background-color: var(--primary-darker);
         border-bottom: 2px solid var(--primary-lighter);
+        border-radius: var(--border-radius);
     }
 
     .input :global(*:not(:first-child)) {
@@ -87,6 +88,12 @@
         align-items: center;
         justify-content: end;
         padding-right: 10px;
+    }
+    .input :global(.alignLeft) {
+        display: flex;
+        align-items: center;
+        justify-content: start;
+        padding-left: 10px;
     }
 
     .input :global(:nth-child(2):not(.switch):not(.numberInput)) {

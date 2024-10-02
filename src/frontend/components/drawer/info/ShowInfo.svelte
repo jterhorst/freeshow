@@ -1,7 +1,10 @@
 <script lang="ts">
-    import { activeShow, categories, shows, showsCache, templates } from "../../../stores"
+    import { activeShow, activeTagFilter, categories, globalTags, shows, showsCache, templates } from "../../../stores"
+    import { keysToID, sortByName } from "../../helpers/array"
+    import Icon from "../../helpers/Icon.svelte"
     import { _show } from "../../helpers/shows"
     import T from "../../helpers/T.svelte"
+    import Button from "../../inputs/Button.svelte"
     import Date from "../../system/Date.svelte"
 
     $: show = $activeShow?.id ? $shows[$activeShow.id] : null
@@ -27,7 +30,7 @@
 </script>
 
 <main>
-    <h2 style="text-align: center" title={show?.name}>
+    <h2 style="text-align: center;padding: 10px;" title={show?.name}>
         {#if show?.name.length}
             {show.name}
         {:else}
@@ -36,84 +39,110 @@
             </span>
         {/if}
     </h2>
-    <p>
-        <span class="title"><T id={"info.created"} /></span>
-        {#if created}
-            <Date d={created} />
-        {:else}
-            <span>—</span>
-        {/if}
-    </p>
-    <p>
-        <span class="title"><T id={"info.modified"} /></span>
-        {#if modified}
-            <Date d={modified} />
-        {:else}
-            <span>—</span>
-        {/if}
-    </p>
-    <p>
-        <span class="title"><T id={"info.used"} /></span>
-        {#if used}
-            <Date d={used} />
-        {:else}
-            <span>—</span>
-        {/if}
-    </p>
-    <p>
-        <span class="title"><T id={"info.category"} /></span>
-        <span>
-            {#if show?.category}
-                {#if $categories[show?.category]}
-                    {#if $categories[show?.category].default}
-                        <T id={$categories[show?.category].name} />
+
+    <div class="table">
+        <p>
+            <span class="title"><T id={"info.created"} /></span>
+            {#if created}
+                <span><Date d={created} /></span>
+            {:else}
+                <span>—</span>
+            {/if}
+        </p>
+        <p>
+            <span class="title"><T id={"info.modified"} /></span>
+            {#if modified}
+                <span><Date d={modified} /></span>
+            {:else}
+                <span>—</span>
+            {/if}
+        </p>
+        <p>
+            <span class="title"><T id={"info.used"} /></span>
+            {#if used}
+                <span><Date d={used} /></span>
+            {:else}
+                <span>—</span>
+            {/if}
+        </p>
+        <p>
+            <span class="title"><T id={"info.category"} /></span>
+            <span>
+                {#if show?.category}
+                    {#if $categories[show?.category]}
+                        {#if $categories[show?.category].default}
+                            <T id={$categories[show?.category].name} />
+                        {:else}
+                            {$categories[show?.category].name}
+                        {/if}
                     {:else}
-                        {$categories[show?.category].name}
+                        <T id="error.not_found" />
                     {/if}
                 {:else}
-                    <T id="error.not_found" />
+                    —
                 {/if}
-            {:else}
-                —
-            {/if}
-        </span>
-    </p>
-    <p>
-        <span class="title"><T id={"info.slides"} /></span>
-        <span>{Object.keys(fullShow?.slides || {}).length}</span>
-    </p>
-    <p>
-        <span class="title"><T id={"info.words"} /></span>
-        <span>{words}</span>
-    </p>
-    <p>
-        <span class="title"><T id={"info.template"} /></span>
-        <span>
-            {#if fullShow?.settings?.template}
-                {#if $templates[fullShow?.settings.template]}
-                    {$templates[fullShow?.settings.template]?.name || "—"}
+            </span>
+        </p>
+        <p>
+            <span class="title"><T id={"meta.tags"} /></span>
+            <span style="overflow: hidden;text-overflow: ellipsis;">
+                {sortByName(keysToID($globalTags).filter((a) => show?.quickAccess?.tags?.includes(a.id)))
+                    .map(({ name }) => name)
+                    .join(", ") || "—"}
+            </span>
+        </p>
+        <p>
+            <span class="title"><T id={"info.slides"} /></span>
+            <span>{Object.keys(fullShow?.slides || {}).length}</span>
+        </p>
+        <p>
+            <span class="title"><T id={"info.words"} /></span>
+            <span>{words}</span>
+        </p>
+        <p>
+            <span class="title"><T id={"info.template"} /></span>
+            <span>
+                {#if fullShow?.settings?.template}
+                    {#if $templates[fullShow?.settings.template]}
+                        {$templates[fullShow?.settings.template]?.name || "—"}
+                    {:else}
+                        <T id="error.not_found" />
+                    {/if}
                 {:else}
-                    <T id="error.not_found" />
+                    <T id="main.none" />
                 {/if}
-            {:else}
-                <T id="main.none" />
-            {/if}
-        </span>
-    </p>
+            </span>
+        </p>
+    </div>
 </main>
+
+{#if $activeTagFilter?.length}
+    <Button style="width: 100%;" on:click={() => activeTagFilter.set([])} center dark>
+        <Icon id="close" right />
+        <T id="meta.clear_tag_filter" />
+    </Button>
+{/if}
 
 <style>
     main {
+        flex: 1;
         overflow-y: auto;
-        padding: 10px;
     }
 
-    p {
+    .table p {
         display: flex;
         justify-content: space-between;
+        gap: 5px;
+        padding: 2px 10px;
+    }
+    .table p:nth-child(odd) {
+        background-color: var(--primary-darker);
     }
 
     .title {
+        font-weight: 600;
+    }
+    .table p span:not(.title) {
         opacity: 0.8;
     }
 </style>

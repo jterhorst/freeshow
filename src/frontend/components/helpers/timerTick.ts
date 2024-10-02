@@ -1,20 +1,24 @@
 import { get } from "svelte/store"
 import type { Event } from "../../../types/Calendar"
 import { OUTPUT, STAGE } from "../../../types/Channels"
-import { activeTimers, currentWindow, dictionary, events, nextShowEventPaused, nextShowEventStart, shows } from "../../stores"
-import { newToast } from "../../utils/messages"
+import { activeTimers, currentWindow, dictionary, events, nextActionEventPaused, nextActionEventStart, timers } from "../../stores"
+import { newToast } from "../../utils/common"
+import { translate } from "../../utils/language"
 import { send } from "../../utils/request"
-import { setOutput } from "./output"
+import { actionData } from "../actions/actionData"
+import { customActionActivation, runAction } from "../actions/actions"
+import { clone, keysToID, sortByTime } from "./array"
 import { loadShows } from "./setShow"
-import { _show } from "./shows"
-import { clone } from "./array"
-import { checkNextAfterMedia, updateOut } from "./showActions"
+import { checkNextAfterMedia } from "./showActions"
+import { sortByClosestMatch } from "../actions/apiHelper"
+import { playPauseGlobal } from "../drawer/timers/timers"
 
 const INTERVAL = 1000
 const TEN_SECONDS = 1000 * 10
 const ONE_MINUTE = 1000 * 60
 
 let timeout: any = null
+let customInterval = INTERVAL
 export function startTimer() {
     if (get(currentWindow)) return
     if (!get(activeTimers).filter((a) => a.paused !== true).length || timeout) return
@@ -28,73 +32,148 @@ export function startTimer() {
 
         timeout = null
         startTimer()
-    }, INTERVAL)
+    }, customInterval)
 }
 
-function increment(timer: any) {
-    if (timer.start < timer.end ? timer.currentTime >= timer.end : timer.currentTime <= timer.end) checkNextAfterMedia(timer.id, "timer")
+export function startTimerByName(name: string) {
+    let timersList = sortByClosestMatch(keysToID(get(timers)), name)
+    let timerId = timersList[0]?.id
+    if (!timerId) return
+
+    startTimerById(timerId)
+}
+
+export function startTimerById(id: string) {
+    let timer = get(timers)[id]
+    if (!timer) return
+
+    playPauseGlobal(id, timer)
+}
+
+export function stopTimers() {
+    activeTimers.set([])
+    customInterval = INTERVAL
+}
+
+function increment(timer: any, i: number) {
+    if (timer.start < timer.end ? timer.currentTime >= timer.end : timer.currentTime <= timer.end) {
+        // ended
+        checkNextAfterMedia(timer.id, "timer")
+        customActionActivation("timer_end")
+    }
 
     if ((timer.currentTime === timer.end && !timer.overflow) || timer.paused) return timer
-    if (timer.start < timer.end) timer.currentTime++
-    else timer.currentTime--
+
+    let currentTime = Date.now()
+    // store timer start time (for accuracy)
+    if (!timer.startTime) {
+        let timerIs = timer.currentTime - timer.start
+        let timerShouldBe = timerIs * 1000 // - 1
+        if (timer.start < timer.end) timer.startTime = currentTime - timerShouldBe
+        else timer.startTime = currentTime + timerShouldBe
+    }
+
+    let difference = currentTime - timer.startTime
+    let timerShouldBe = Math.floor(difference / 1000) + 1
+
+    // prevent interval time increasing more and more
+    if (i === 0) {
+        let preciseTime = (timerShouldBe - 1) * 1000
+        let differenceMs = difference - preciseTime
+        customInterval = Math.max(500, INTERVAL - differenceMs)
+    }
+
+    if (timer.start < timer.end) timer.currentTime = timer.start + timerShouldBe
+    else timer.currentTime = timer.start - timerShouldBe
 
     return timer
 }
 
-let showTimeout: any = null
-export function startEventTimer() {
-    let currentTime: Date = new Date()
-    let showEvents: Event[] = Object.values(get(events)).filter((a) => {
-        let eventTime: Date = new Date(a.from)
-        return a.type === "show" && currentTime.getTime() - INTERVAL < eventTime.getTime()
+// convert "show" to "action" <= 1.1.7
+let initialized: boolean = false
+function convertShowToAction() {
+    if (initialized) return
+    initialized = true
+
+    let updated: boolean = false
+    let allEvents = get(events)
+    Object.keys(allEvents).forEach((eventId) => {
+        let newEvent = allEvents[eventId]
+        if (newEvent.type !== "show") return
+
+        updated = true
+        newEvent.type = "action"
+        newEvent.action = { id: "start_show", data: { id: newEvent.show } }
+
+        allEvents[eventId] = newEvent
     })
-    if (!showEvents.length || showTimeout) {
-        nextShowEventStart.set({})
-        return
-    }
 
-    showEvents = showEvents.sort((a, b) => new Date(a.from).getTime() - new Date(b.from).getTime())
+    if (updated) events.set(allEvents)
+}
 
-    showTimeout = setTimeout(() => {
-        showEvents.forEach((event, i) => {
+let actionTimeout: any = null
+export function startEventTimer() {
+    if (actionTimeout) return
+    actionTimeout = true
+
+    convertShowToAction()
+
+    let currentTime: Date = new Date()
+    let actionEvents: Event[] = Object.values(get(events)).filter((a) => {
+        let eventTime: Date = new Date(a.from)
+        return a.type === "action" && currentTime.getTime() - INTERVAL < eventTime.getTime()
+    })
+
+    if (!actionEvents.length) nextActionEventStart.set({})
+
+    actionEvents = actionEvents.sort(sortByTime)
+
+    actionTimeout = setTimeout(() => {
+        actionEvents.forEach((event, i) => {
+            if (!event.action) return
+
             let eventTime: Date = new Date(event.from)
             let toast = get(dictionary).toast || {}
-            let showId = event.show || ""
-            let show = get(shows)[showId]
-            if (!show || get(nextShowEventPaused)) return
+            if (get(nextActionEventPaused)) return
+
+            let actionId = event.action.id
+            let actionName = translate(actionData[actionId]?.name)
 
             let timeLeft: number = eventTime.getTime() - currentTime.getTime()
-            if (i === 0) {
-                nextShowEventStart.set({ showId, name: show.name, timeLeft })
-            }
+            if (i === 0) nextActionEventStart.set({ name: actionName, timeLeft })
 
             // less than 1 minute
-            if (timeLeft <= ONE_MINUTE && timeLeft > ONE_MINUTE - INTERVAL) {
-                newToast(`${toast.starting_show} "${show.name}" ${toast.less_than_minute}`)
+            if (i < 4 && timeLeft <= ONE_MINUTE && timeLeft > ONE_MINUTE - INTERVAL) {
+                newToast(`${toast.starting_action} "${actionName}" ${toast.less_than_minute}`)
+                return
             }
             // less than 30 seconds
-            if (timeLeft <= ONE_MINUTE / 2 && timeLeft > ONE_MINUTE / 2 - INTERVAL) {
-                newToast(`${toast.starting_show} "${show.name}" ${toast.less_than_seconds.replace("{}", "30")}`)
+            if (i < 4 && timeLeft <= ONE_MINUTE / 2 && timeLeft > ONE_MINUTE / 2 - INTERVAL) {
+                newToast(`${toast.starting_action} "${actionName}" ${toast.less_than_seconds.replace("{}", "30")}`)
+                return
             }
             // less than 10 seconds
-            if (timeLeft <= TEN_SECONDS && timeLeft > TEN_SECONDS - INTERVAL) {
-                newToast(`${toast.starting_show} "${show.name}" ${toast.less_than_seconds.replace("{}", "10")}`)
-                loadShows([showId])
-            }
-            // start show
-            if (timeLeft <= 0 && timeLeft > 0 - INTERVAL) {
-                newToast(`${toast.starting_show} "${show.name}" ${toast.now}`)
-                loadShows([showId])
-                let activeLayout = _show(event.show).get("settings.activeLayout")
+            if (i < 4 && timeLeft <= TEN_SECONDS && timeLeft > TEN_SECONDS - INTERVAL) {
+                newToast(`${toast.starting_action} "${actionName}" ${toast.less_than_seconds.replace("{}", "10")}`)
 
-                // slideClick() - Slides.svelte
-                let slideRef: any = _show(showId).layouts("active").ref()[0]
-                updateOut(showId, 0, slideRef)
-                setOutput("slide", { id: showId, layout: activeLayout, index: 0, line: 0 })
+                // preload data
+                if (actionId === "start_show") loadShows([event.action.data?.id])
+                return
+            }
+
+            // start action
+            if (timeLeft <= 0 && timeLeft > 0 - INTERVAL) {
+                newToast(`${toast.starting_action} "${actionName}" ${toast.now}`)
+
+                runAction(convertEventAction(event.action))
             }
         })
 
-        showTimeout = null
+        actionTimeout = null
         startEventTimer()
     }, INTERVAL)
+}
+
+function convertEventAction(action) {
+    return { triggers: [action.id], actionValues: { [action.id]: action.data || {} } }
 }

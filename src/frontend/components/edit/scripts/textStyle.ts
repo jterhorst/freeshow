@@ -2,15 +2,11 @@ import type { Item, Line, Slide } from "../../../../types/Show"
 
 // add new style to text by selection
 export function addStyle(selection: { start: number; end: number }[], item: Item, style: string | any[]): Item {
-    // let selections: null | Selection = window.getSelection()
-    // let global: null | number[] = null
     item.lines?.forEach((line, i) => {
         let newText: any[] = []
         let pos: number = 0
-        if (selection[i].start !== undefined) {
+        if (selection[i]?.start !== undefined) {
             line.text?.forEach((text: any) => {
-                // , i: number
-                // TODO: .replaceAll("<br>", "")
                 const length: number = text.value.length
                 let from = 0
                 let to = length
@@ -40,8 +36,6 @@ export function addStyle(selection: { start: number; end: number }[], item: Item
 
 // combine duplicate styles
 function combine(item: Item): Item {
-    // TODO: removed one char....
-    // TODO: remove if value === "" ???
     item.lines?.forEach((line) => {
         let a = [...(line.text || [])]
         for (let i = 0; i < a.length; i++) {
@@ -65,7 +59,6 @@ function combine(item: Item): Item {
             }
         }
 
-        // item.lines![i].text = a
         line.text = a
     })
     return item
@@ -138,7 +131,6 @@ export function getSelectionRange(): { start: number; end: number }[] {
         let count: number = 0
 
         new Array(...br.childNodes).forEach((child: any) => {
-            console.log(count, child.innerText)
             if (selection!.containsNode(child, true)) {
                 // if start not set & child is start & (child is not end or end is bigger than start)
                 if (start === null && child === startNode && (child !== endNode || endOffset > startOffset)) {
@@ -192,9 +184,7 @@ export function getItemStyleAtPos(lines: Line[], pos: null | { start: number; en
     // filter out empty lines
     lines = lines.filter((a) => a.text.length)
 
-    console.log(style)
     if (!style.length && lines.length) style = lines[lines.length - 1].text[lines[lines.length - 1].text.length - 1]?.style || ""
-    console.log(style)
 
     return style
 }
@@ -208,15 +198,21 @@ export function getLastLineAlign(item: Item, selection: any): string {
     return last
 }
 
+// get text of slides
+export function getSlidesText(slides: { [key: string]: Slide }) {
+    return Object.values(slides).reduce((value, slide) => (value += getSlideText(slide)), "")
+}
+
 // get text of slide
 export function getSlideText(slide: Slide) {
+    if (!slide?.items?.length) return ""
     return slide.items.reduce((value, item) => (value += getItemText(item)), "")
 }
 
 // get text of item.text...
 export function getItemText(item: Item): string {
     let text: string = ""
-    if (!item.lines) return ""
+    if (!item?.lines) return ""
 
     item.lines.forEach((line) => {
         if (!line.text) return
@@ -229,9 +225,40 @@ export function getItemText(item: Item): string {
     return text
 }
 
+export function getItemTextArray(item: Item): string[] {
+    let text: string[] = []
+    if (!item?.lines) return []
+
+    item.lines.forEach((line) => {
+        if (!line.text) return
+
+        line.text.forEach((content) => {
+            text.push(content.value)
+        })
+    })
+
+    return text
+}
+
+// get chords map
+export function getItemChords(item: Item): string {
+    let text: string = ""
+    if (!item?.lines) return ""
+
+    item.lines.forEach((line) => {
+        if (!line.chords?.length) return
+
+        line.chords.forEach((chord) => {
+            text += chord.key
+        })
+    })
+
+    return text
+}
+
 export function getLineText(line: any): string {
     let text: string = ""
-    line.text?.forEach((content: any) => {
+    line?.text?.forEach((content: any) => {
         text += content.value
     })
     return text
@@ -239,13 +266,6 @@ export function getLineText(line: any): string {
 
 // seperate text with breaks
 export function getItemLines(item: Item): string[] {
-    // return (
-    //   item.lines?.map((line) => {
-    //     let text = ""
-    //     line.text.map((content) => (text += content.value))
-    //     return text
-    //   }) || []
-    // )
     let lines: string[] = []
     item.lines?.forEach((line) => {
         let text = ""
@@ -276,6 +296,7 @@ export function getCaretCharacterOffsetWithin(element: any) {
 }
 
 export function setCaret(element: any, { line = 0, pos = 0 }, toEnd: boolean = false) {
+    if (!element) return
     var range = document.createRange()
     var sel = window.getSelection()
 
@@ -409,5 +430,16 @@ export function setCurrentCursorPosition(element: any, pos: number) {
             selection?.removeAllRanges()
             selection?.addRange(range)
         }
+    }
+}
+
+export function setCaretPosition(elem: any, pos: number = 0) {
+    if (elem.createTextRange) {
+        var range = elem.createTextRange()
+        range.move("character", pos)
+        range.select()
+    } else {
+        elem.focus()
+        if (elem.selectionStart) elem.setSelectionRange(pos, pos)
     }
 }

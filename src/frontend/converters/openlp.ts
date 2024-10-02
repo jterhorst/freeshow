@@ -29,7 +29,7 @@ export function convertOpenLP(data: any) {
     activePopup.set("alert")
     alertMessage.set("popup.importing")
 
-    createCategory("OpenLP")
+    let categoryId = createCategory("OpenLP")
 
     let tempShows: any[] = []
 
@@ -50,13 +50,13 @@ export function convertOpenLP(data: any) {
 
     function addShow(song: Song) {
         let layoutID = uid()
-        let show = new ShowObj(false, "openlp", layoutID)
+        let show = new ShowObj(false, categoryId, layoutID)
         show.name = checkName(song.title)
 
         show.meta = {
             title: song.meta_title || show.name,
-            author: song.authors?.find((a) => a.type.includes("words"))?.name || "",
-            artist: song.authors?.find((a) => a.type.includes("music"))?.name || "",
+            author: song.authors?.find((a) => a.type?.includes("words"))?.name || "",
+            artist: song.authors?.find((a) => a.type?.includes("music"))?.name || "",
             CCLI: song.ccli || "",
             copyright: song.copyright || "",
         }
@@ -66,6 +66,7 @@ export function convertOpenLP(data: any) {
             modified: new Date(song.modified).getTime(),
             used: null,
         }
+        if (!show.timestamps.modified) show.timestamps.modified = show.timestamps.created
 
         let { slides, layout }: any = createSlides(song)
 
@@ -76,7 +77,8 @@ export function convertOpenLP(data: any) {
     }
 }
 
-const OLPgroups: any = { V: "verse", C: "chorus", B: "bridge", T: "tag", O: "outro" }
+// Verse, Chorus, Bridge, Pre-Chorus, Intro, Ending, Other
+const OLPgroups: any = { V: "verse", C: "chorus", P: "pre_chorus", B: "bridge", O: "tag", I: "intro", E: "outro" }
 function createSlides({ verseOrder, lyrics }: Song) {
     let slides: any = {}
     let layout: any[] = []
@@ -174,30 +176,85 @@ function getSong(song: any, content: any) {
 // XML
 
 function XMLtoObject(xml: string) {
-    let parser = new DOMParser()
-    let xmlDoc = parser.parseFromString(xml, "text/xml").children[0]
+    let song = xml2json(xml).song || {}
 
-    let properties = getChild(xmlDoc, "properties")
-    let lyrics = getChild(xmlDoc, "lyrics")
+    let lyrics = song.lyrics || {}
+    let properties = song.properties || {}
 
-    let object: Song = {
-        title: getChild(getChild(properties, "titles"), "title").textContent!,
-        modified: xmlDoc.getAttribute("modifiedDate")!,
-        verseOrder: getChild(properties, "verseOrder").textContent!,
-        authors: [...getChild(properties, "authors").children].map((a: any) => ({ type: a.getAttribute("type"), name: a.textContent })),
-        lyrics: [...lyrics.getElementsByTagName("verse")].map((verse) => ({
-            name: verse.getAttribute("name")!,
-            lines: getChild(verse, "lines")
-                ?.innerHTML.toString()
-                .replaceAll('xmlns="http://openlyrics.info/namespace/2009/song"', "")
-                .replaceAll("<br/>", "<br />")
-                .replaceAll("\n", "<br />")
-                ?.split("<br />")
-                .filter((a) => a.trim().length),
-        })),
+    let newSong: Song = {
+        title: getTitle(),
+        notes: song["#comment"] || properties.comments?.map((comment) => comment["#text"] || "").join("\n") || "",
+        // created: song["@createDate"],
+        modified: song["@modifiedDate"],
+        copyright: properties.copyright || "",
+        ccli: properties.ccliNo || "",
+        authors: getAuthors(),
+        verseOrder: formatVerseOrder(properties.verseOrder || ""),
+        lyrics: getLyrics(),
     }
 
-    return object
-}
+    return newSong
 
-const getChild = (parent: any, name: string) => parent.getElementsByTagName(name)[0]
+    function getTitle() {
+        let currentSongTitle = properties.titles?.title || []
+        if (Array.isArray(currentSongTitle)) currentSongTitle = currentSongTitle[0]
+
+        let title = (typeof currentSongTitle["#text"] != "undefined") ? currentSongTitle["#text"] : currentSongTitle
+
+        return title
+    }
+
+    function getAuthors() {
+        let currentSongAuthors = properties.authors?.author || []
+        if (!Array.isArray(currentSongAuthors)) currentSongAuthors = [currentSongAuthors]
+
+        let authors: any[] = []
+        authors = currentSongAuthors.map((author) => ({ name: author["#text"] || "", type: author["@type"] || "words" }))
+
+        return authors
+    }
+
+    function formatVerseOrder(verseOrder: string) {
+        const hasNumber = /\d+$/
+        verseOrder = verseOrder.split(" ").map(format).join(" ")
+        function format(id) {
+            if (!hasNumber.test(id)) id += "1"
+            return id
+        }
+
+        return verseOrder
+    }
+
+    function getLyrics() {
+        lyrics = song.lyrics?.verse || []
+        if (!Array.isArray(lyrics)) lyrics = [lyrics]
+
+        lyrics = lyrics.map((a) => ({ name: a["@name"], lines: getLines(a.lines || "") }))
+
+        return lyrics
+    }
+
+    function getLines(lines: string | any[]) {
+        let newLines: string[] = []
+
+        // might be <lines break="optional">
+        if (lines["#text"]) lines = lines["#text"]
+        // some openlyrics verses can have multiple <lines> tags
+        if (Array.isArray(lines)) {
+            let convertedLines: string[] = lines.map(convertToText)
+            function convertToText(line: any) {
+                if (line["#text"]) return line["#text"]
+                return line
+            }
+            lines = convertedLines.join("\n")
+        }
+
+        // remove unused line seperator char
+        lines = lines.replaceAll("&#8232;", "")
+        // find line breaks
+        lines = lines.replaceAll('xmlns="http://openlyrics.info/namespace/2009/song"', "").replaceAll("<br/>", "\n").replaceAll("<br />", "\n")
+        newLines = lines.split("\n")
+
+        return newLines
+    }
+}

@@ -1,7 +1,9 @@
-import { blur, fade, crossfade, fly, scale, slide } from "svelte/transition"
+import { blur, crossfade, fade, fly, scale } from "svelte/transition"
 import type { TransitionType } from "./../../types/Show"
 // import { quintInOut } from "svelte/easing"
 import { backInOut, bounceInOut, circInOut, cubicInOut, elasticInOut, linear, sineInOut } from "svelte/easing"
+import type { API_transition } from "../components/actions/api"
+import { transitionData } from "../stores"
 
 // https://stackoverflow.com/questions/70531875/svelte-crossfade-transition-between-pages
 // export const crossfade = cfade({})
@@ -14,7 +16,25 @@ export const transitions: { [key in TransitionType]: any } = {
     crossfade,
     fly,
     scale,
-    slide,
+    // slide,
+    slide: (_node, custom: any) => {
+        return {
+            css: (t: number) => {
+                let direction = custom.direction || "left_right"
+
+                // go a bit faster, because transition will finish a bit before slide is done! (only in output...)
+                // let pos = Math.min(1, (1 - t) * 1.1) * 100
+                let pos = (1 - t) * 100
+
+                if (direction === "left_right") return `transform: translate(-${pos}%);`
+                if (direction === "right_left") return `transform: translate(${pos}%);`
+                if (direction === "bottom_top") return `transform: translateY(${pos}%);`
+                if (direction === "top_bottom") return `transform: translateY(-${pos}%);`
+
+                return ""
+            },
+        }
+    },
     spin: (node: any) => {
         const o = +getComputedStyle(node).opacity
         return {
@@ -40,8 +60,21 @@ export const easings: any[] = [
     // { id: "quint", name: "$:easings.quint:$", data: quintInOut },
 ]
 
-export function custom(node: any, { type = "fade", duration = 500, easing = "sine" }: any) {
-    let customTransition = { ...transitions[type as TransitionType](node), duration: type === "none" ? 0 : duration, easing: easings.find((a) => a.id === easing).data || linear }
+// : Transition
+export function custom(node: any, { type = "fade", duration = 500, easing = "sine", delay = 0, custom = {} }: any) {
+    let customTransition = { ...transitions[type as TransitionType](node, custom), duration: type === "none" ? 0 : duration, easing: easings.find((a) => a.id === easing)?.data || linear, delay }
     // if (type === "crossfade") customTransition.key = "a"
     return customTransition
+}
+
+export function updateTransition(data: API_transition) {
+    transitionData.update((a) => {
+        a[data.id || "text"] = {
+            type: data.type || "fade",
+            duration: data.duration ?? 500,
+            easing: data.easing || "sine",
+        }
+
+        return a
+    })
 }

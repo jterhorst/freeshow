@@ -1,19 +1,23 @@
 // ----- FreeShow -----
 // Expose protected methods that allow the renderer process to use the ipcRenderer without exposing the entire object
 
+import { IpcRendererEvent, contextBridge, ipcRenderer, webUtils } from "electron"
 import type { ValidChannels } from "../types/Channels"
-import { contextBridge, ipcRenderer } from "electron"
 
 // const maxInterval: number = 500
 // const useTimeout: ValidChannels[] = ["STAGE", "REMOTE", "CONTROLLER", "OUTPUT_STREAM"]
 // let lastChannel: string = ""
 
-const debug: boolean = true
-const filteredChannels: any[] = ["AUDIO_MAIN", "VIZUALISER_DATA", "STREAM", "PREVIEW"]
+// wait to log messages until after intial load is done
+let appLoaded: boolean = false
+const LOG_MESSAGES: boolean = process.env.NODE_ENV !== "production"
+const filteredChannels: any[] = ["AUDIO_MAIN", "VIZUALISER_DATA", "STREAM", "BUFFER", "REQUEST_STREAM", "MAIN_TIME", "GET_THUMBNAIL", "ACTIVE_TIMERS"]
+
+let storedReceivers: any = {}
 
 contextBridge.exposeInMainWorld("api", {
     send: (channel: ValidChannels, data: any) => {
-        if (debug && !filteredChannels.includes(data?.channel)) console.log("TO ELECTRON [" + channel + "]: ", data)
+        if (LOG_MESSAGES && appLoaded && !filteredChannels.includes(data?.channel)) console.log("TO ELECTRON [" + channel + "]: ", data)
         // if (useTimeout.includes(channel) && data.channel === lastChannel && data.id) return
 
         ipcRenderer.send(channel, data)
@@ -21,11 +25,25 @@ contextBridge.exposeInMainWorld("api", {
         // lastChannel = data.channel
         // setTimeout(() => (lastChannel = ""), maxInterval)
     },
-    receive: (channel: ValidChannels, func: any) => {
-        ipcRenderer.on(channel, (_e, ...args) => {
-            if (debug && !filteredChannels.includes(args[0]?.channel)) console.log("TO CLIENT [" + channel + "]: ", ...args)
+    receive: (channel: ValidChannels, func: any, id: string = "") => {
+        const receiver = (_e: IpcRendererEvent, ...args: any[]) => {
+            if (!appLoaded && channel === "STORE" && args[0]?.channel === "SHOWS") setTimeout(() => (appLoaded = true), 3000)
+            if (LOG_MESSAGES && appLoaded && !filteredChannels.includes(args[0]?.channel)) console.log("TO CLIENT [" + channel + "]: ", ...args)
 
             func(...args)
-        })
+        }
+
+        ipcRenderer.on(channel, receiver)
+        if (id) storedReceivers[id] = receiver
+    },
+    removeListener: (channel: ValidChannels, id: string) => {
+        if (!storedReceivers[id]) return
+
+        ipcRenderer.removeListener(channel, storedReceivers[id])
+        delete storedReceivers[id]
+    },
+    // https://www.electronjs.org/blog/electron-32-0#breaking-changes
+    showFilePath(file: File) {
+        return webUtils.getPathForFile(file)
     },
 })

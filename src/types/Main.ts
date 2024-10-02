@@ -1,6 +1,7 @@
 export interface Option {
     name: string
     extra?: string
+    data?: any
     id?: string
 }
 
@@ -21,6 +22,7 @@ export interface Time {
 
 export type SelectIds =
     | "slide"
+    | "slide_icon"
     | "group"
     | "global_group"
     | "layout"
@@ -41,21 +43,27 @@ export type SelectIds =
     | "stage"
     | "media"
     | "audio"
+    | "metronome"
     | "overlay"
     | "template"
+    | "action"
     | "effect"
     | "screen"
     | "camera"
     | "microphone"
     | "player"
+    | "scripture"
     | "timer"
     | "global_timer"
     | "variable"
+    | "trigger"
+    | "audio_stream"
     | "chord"
     | "midi"
     | "theme"
     | "style"
     | "output"
+    | "tag"
 
 export interface Selected {
     id: null | SelectIds
@@ -77,43 +85,59 @@ export interface ActiveEdit {
     id?: string
     slide?: null | number
     items: number[]
+    showId?: string // only used to reset to slide 0 if changed ($activeShow.id is actually used)
 }
 
 export type MediaFit = "contain" | "cover" | "fill"
 export interface Media {
-    [key: string]: {
-        filter: any
-        flipped?: boolean
-        fit?: MediaFit
-        speed?: string
-        favourite?: boolean
-        audio?: boolean
-    }
+    [key: string]: MediaStyle
+}
+export interface MediaStyle {
+    filter?: string
+    flipped?: boolean
+    flippedY?: boolean
+    fit?: MediaFit
+    speed?: string
+    fromTime?: number
+    toTime?: number
+    favourite?: boolean
+    audio?: boolean
+    loop?: boolean // audio
+    volume?: number // audio
+    rendering?: string // image rendering
 }
 
 export type Popups =
     | "initialize"
     | "import"
+    | "songbeamer_import"
     | "export"
     | "show"
     | "delete_show"
     | "select_show"
     | "icon"
     | "manage_icons"
+    | "manage_colors"
     | "player"
     | "rename"
     | "color"
     | "find_replace"
     | "timer"
     | "variable"
+    | "trigger"
+    | "audio_stream"
     | "transition"
     | "import_scripture"
     | "edit_event"
+    | "edit_list"
+    | "choose_chord"
     | "choose_screen"
+    | "choose_camera"
+    | "choose_output"
     | "change_output_values"
-    | "choose_style"
     | "set_time"
     | "animate"
+    | "translate"
     | "next_timer"
     | "advanced_settings"
     | "about"
@@ -122,7 +146,7 @@ export type Popups =
     | "reset_all"
     | "alert"
     | "history"
-    | "midi"
+    | "action"
     | "connect"
     | "cloud_update"
     | "cloud_method"

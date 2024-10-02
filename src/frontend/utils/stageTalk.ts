@@ -1,61 +1,52 @@
 import { get } from "svelte/store"
 import { STAGE } from "../../types/Channels"
 import type { ClientMessage } from "../../types/Socket"
+import { clone } from "../components/helpers/array"
+import { getBase64Path } from "../components/helpers/media"
 import { getActiveOutputs } from "../components/helpers/output"
 import { _show } from "../components/helpers/shows"
-import { events, mediaCache, outputs, showsCache, stageShows, timeFormat, timers } from "../stores"
+import { getCustomStageLabel } from "../components/stage/stage"
+import { dictionary, events, groups, media, outputs, previewBuffers, stageShows, timeFormat, timers, variables, videosData, videosTime } from "../stores"
 import { connections } from "./../stores"
 import { send } from "./request"
-import { arrayToObject, eachConnection, filterObjectArray, sendData, timedout } from "./sendData"
+import { arrayToObject, filterObjectArray, sendData } from "./sendData"
+import { getGroupName } from "../components/helpers/show"
 
-// WIP this should not send to all stage, just connected ids
-export function stageListen() {
-    stageShows.subscribe((data: any) => {
-        data = arrayToObject(filterObjectArray(data, ["disabled", "name", "settings", "items"]).filter((a: any) => a.disabled === false))
-        timedout(STAGE, { channel: "SHOW", data }, () =>
-            eachConnection(STAGE, "SHOW", (connection) => {
-                if (!connection.active) return
+export async function sendBackgroundToStage(outputId, updater = get(outputs), returnPath = false) {
+    let currentOutput = updater[outputId]?.out
+    let path = currentOutput?.background?.path || ""
+    if (!path) {
+        if (!returnPath) send(STAGE, ["BACKGROUND"], { path: "" })
+        return
+    }
 
-                let currentData = data[connection.active]
-                if (!currentData.settings.resolution?.width) currentData.settings.resolution = { width: 1920, height: 1080 }
-                return currentData
-            })
-        )
-    })
-    showsCache.subscribe(() => {
-        sendData(STAGE, { channel: "SLIDES" })
-    })
+    let base64path = await getBase64Path(path)
+    if (!base64path) return
 
-    outputs.subscribe(() => {
-        sendData(STAGE, { channel: "SLIDES" }, true)
-        // send(STAGE, ["OUTPUTS"], data)
+    let bg = clone({ path: base64path, mediaStyle: get(media)[path] || {}, next: await getNextBackground(currentOutput?.slide) })
 
-        // sendBackgroundToStage(a)
-    })
-    mediaCache.subscribe(() => {
-        sendData(STAGE, { channel: "SLIDES" }, true)
-        // sendBackgroundToStage(get(outputs))
-    })
+    if (returnPath) return bg
 
-    timers.subscribe((a) => {
-        send(STAGE, ["TIMERS"], a)
-    })
-    events.subscribe((a) => {
-        send(STAGE, ["EVENTS"], a)
-    })
-
-    timeFormat.subscribe((a) => {
-        send(STAGE, ["DATA"], { timeFormat: a })
-    })
+    send(STAGE, ["BACKGROUND"], bg)
+    return
 }
 
-function sendBackgroundToStage(outputId) {
-    let path = get(outputs)[outputId].out?.background?.path || ""
+async function getNextBackground(currentOutputSlide: any) {
+    if (!currentOutputSlide?.id) return {}
 
-    let background = null
-    if (path) background = get(mediaCache)[path]?.data || null
+    let layout: any[] = _show(currentOutputSlide.id).layouts([currentOutputSlide.layout]).ref()[0]
+    if (!layout) return {}
 
-    send(STAGE, ["BACKGROUND"], { path: background })
+    let nextLayout = layout[(currentOutputSlide.index || 0) + 1]
+    if (!nextLayout) return {}
+
+    let bgId = nextLayout.data.background || ""
+    let path = _show(currentOutputSlide.id).media([bgId]).get()?.[0]?.path
+
+    let base64path = await getBase64Path(path)
+    if (!base64path) return {}
+
+    return { path: base64path, mediaStyle: get(media)[path] || {} }
 }
 
 export const receiveSTAGE: any = {
@@ -82,6 +73,11 @@ export const receiveSTAGE: any = {
         })
         show = arrayToObject(filterObjectArray(get(stageShows), ["disabled", "name", "settings", "items"]))[msg.data.id]
 
+        // add labels
+        Object.keys(show.items).map((itemId) => {
+            show.items[itemId].label = getCustomStageLabel(itemId)
+        })
+
         // if (show.disabled) return { id: msg.id, channel: "ERROR", data: "noShow" }
 
         msg.data = show
@@ -90,41 +86,99 @@ export const receiveSTAGE: any = {
         // initial
         window.api.send(STAGE, { id: msg.id, channel: "TIMERS", data: get(timers) })
         window.api.send(STAGE, { id: msg.id, channel: "EVENTS", data: get(events) })
+        window.api.send(STAGE, { id: msg.id, channel: "VARIABLES", data: get(variables) })
         send(STAGE, ["DATA"], { timeFormat: get(timeFormat) })
         return msg
     },
     SLIDES: (msg: ClientMessage) => {
-        console.log(get(connections))
-        console.log(msg)
         // TODO: rework how stage talk works!! (I should send to to each individual connected stage with it's id!)
         let stageId = msg.data?.id
         if (!stageId && Object.keys(get(connections).STAGE || {}).length === 1) stageId = (Object.values(get(connections).STAGE)[0] as any).active
         let show = get(stageShows)[stageId] || {}
-        console.log(show)
         let outputId = show.settings?.output || getActiveOutputs()[0]
         let currentOutput: any = get(outputs)[outputId]
         let out: any = currentOutput?.out?.slide || null
         msg.data = []
-        console.log(out)
 
-        if (!out || out.id === "temp") return msg
+        if (!out) return msg
+
+        // scripture
+        if (out.id === "temp") {
+            msg.data = [{ items: out.tempItems }]
+            return msg
+        }
+
         let ref: any[] = _show(out.id).layouts([out.layout]).ref()[0]
         let slides: any = _show(out.id).get()?.slides
-        console.log(slides)
 
         if (!ref?.[out.index!]) return
         msg.data = [slides[ref[out.index!].id]]
 
         let nextIndex = out.index! + 1
-        while (nextIndex < ref.length && ref[nextIndex].data.disabled === true) nextIndex++
+        if (ref[nextIndex]) {
+            while (nextIndex < ref.length && ref[nextIndex].data.disabled === true) nextIndex++
 
-        console.log(ref[nextIndex])
-        if (nextIndex < ref.length && !ref[nextIndex].data.disabled) msg.data.push(slides[ref[nextIndex].id])
-        else msg.data.push(null)
+            if (nextIndex < ref.length && !ref[nextIndex].data.disabled) msg.data.push(slides[ref[nextIndex].id])
+            else msg.data.push(null)
+        } else msg.data.push(null)
 
         sendBackgroundToStage(outputId)
 
-        console.log(msg.data)
+        return msg
+    },
+    REQUEST_PROGRESS: (msg: ClientMessage) => {
+        let outputId = msg.data.outputId
+        if (!outputId) outputId = getActiveOutputs(get(outputs), false, true, true)[0]
+        if (!outputId) return
+
+        let currentSlideOut = get(outputs)[outputId]?.out?.slide || null
+        let currentShowId = currentSlideOut?.id || ""
+        let currentShowSlide = currentSlideOut?.index ?? -1
+        let currentLayoutRef = _show(currentShowId).layouts("active").ref()[0] || []
+        let currentShowSlides = _show(currentShowId).get("slides") || {}
+        let slidesLength = currentLayoutRef.length || 0
+
+        // get custom group names
+        let layoutGroups = currentLayoutRef.map((a) => {
+            let ref = a.parent || a
+            let slide = currentShowSlides[ref.id]
+            if (!slide) return { name: "—" }
+
+            let group = slide.group
+            if (slide.globalGroup && get(groups)[slide.globalGroup]) {
+                group = get(groups)[slide.globalGroup].default ? get(dictionary).groups?.[get(groups)[slide.globalGroup].name] : get(groups)[slide.globalGroup].name
+            }
+
+            let name = getGroupName({ show: _show(currentShowId).get(), showId: currentShowId }, ref.id, group, ref.layoutIndex)
+            return { name: name || "—", index: ref.layoutIndex, child: a.type === "child" ? (currentLayoutRef[ref.layoutIndex]?.children || []).findIndex((id) => id === a.id) + 1 : 0 }
+        })
+
+        msg.data.progress = { currentShowSlide, slidesLength, layoutGroups }
+
+        return msg
+    },
+    REQUEST_STREAM: (msg: ClientMessage) => {
+        let id = msg.data.outputId
+        if (!id) id = getActiveOutputs(get(outputs), false, true, true)[0]
+        if (msg.data.alpha && get(outputs)[id].keyOutput) id = get(outputs)[id].keyOutput
+
+        if (!id) return
+
+        msg.data.stream = get(previewBuffers)[id]
+
+        return msg
+    },
+    REQUEST_VIDEO_DATA: (msg: ClientMessage) => {
+        if (!msg.data) msg.data = {}
+
+        // WIP don't know the outputId
+        // let id = msg.data.outputId
+        let outputId = getActiveOutputs(get(outputs), false, true, true)[0]
+        if (!outputId) return
+
+        msg.data.data = get(videosData)[outputId]
+        msg.data.time = get(videosTime)[outputId]
+
         return msg
     },
     // TODO: send data!
@@ -148,16 +202,3 @@ function turnIntoBoolean(array: any[], key: string) {
         return a
     })
 }
-
-// function getStageShows() {
-//   return Object.entries(get(stageShows))
-//     .map(([id, a]: any) => ({ id, enabled: a.enabled, name: a.name, password: a.password.length ? true : false }))
-//     .filter((a) => a.enabled)
-// }
-// export function getStageShow() {
-//   let obj = {}
-//   Object.entries(get(stageShows))
-//     .map(([id, a]: any) => ({ id, enabled: a.enabled, name: a.name, settings: a.settings, items: a.items }))
-//     .filter((a) => a.enabled)
-//   return obj
-// }

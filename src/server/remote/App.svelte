@@ -1,17 +1,19 @@
 <script lang="ts">
     import { io } from "socket.io-client"
-    import Button from "./components/Button.svelte"
+    import { onMount } from "svelte"
     import type { TabsObj } from "../../types/Tabs"
-    import Tabs from "./components/Tabs.svelte"
-    import Slide from "./components/slide/Slide.svelte"
-    import { GetLayout, getNextSlide, nextSlide } from "./helpers/get"
-    import Icon from "./components/Icon.svelte"
+    import Button from "./components/Button.svelte"
     import Center from "./components/Center.svelte"
-    import ShowButton from "./components/ShowButton.svelte"
-    import { dateToString } from "./helpers/time"
-    import Slides from "./components/slide/Slides.svelte"
-    import Clear from "./components/slide/Clear.svelte"
+    import Checkbox from "./components/Checkbox.svelte"
+    import Icon from "./components/Icon.svelte"
     import ProjectButton from "./components/ProjectButton.svelte"
+    import ShowButton from "./components/ShowButton.svelte"
+    import Tabs from "./components/Tabs.svelte"
+    import Clear from "./components/slide/Clear.svelte"
+    import Slide from "./components/slide/Slide.svelte"
+    import Slides from "./components/slide/Slides.svelte"
+    import { GetLayout, getNextSlide, nextSlide } from "./helpers/get"
+    import { dateToString } from "./helpers/time"
 
     var dictionary: any = {
         empty: {
@@ -38,6 +40,7 @@
             submit: "Submit",
             password: "Password",
             wrong_password: "Wrong password",
+            quick_play: "Quick play",
         },
         clear: {
             all: "Clear all",
@@ -68,6 +71,7 @@
     let activeShow: any = null
     let outShow: any = null
     let outLayout: any = null
+    let styleRes: any = null
     let outSlide: any = null
     let project: null | string = null
     let projects: any[] = []
@@ -127,9 +131,6 @@
                     })
                 })
                 break
-            case "PROJECTS":
-                if (connected) projects = Object.keys(msg.data).map((id) => ({ id, ...msg.data[id] }))
-                break
             case "ACCESS":
                 console.log("ACCESSED")
                 if (rememberPassword && password.length) localStorage.password = password
@@ -137,13 +138,14 @@
                 break
             case "SHOWS":
                 shows = Object.keys(msg.data).map((id) => ({ id, ...msg.data[id] }))
+                if (quickPlay) activeTab = "shows"
                 break
             // case "SHOWS_CACHE":
             //   showsCache = msg.data
             //   break
             case "SHOW":
                 if (connected) {
-                    if (!activeShow) activeTab = "show"
+                    if (!activeShow && !quickPlay) activeTab = "show"
                     // if (activeTab === "shows" || activeTab === "project" || activeTab === "projects") activeTab = "show"
                     // shows[msg.data.id] = msg.data
                     // activeShow = msg.data.id
@@ -157,6 +159,7 @@
                     if (msg.data.slide === undefined) return
                     outSlide = msg.data.slide
                     if (msg.data.layout) outLayout = msg.data.layout
+                    if (msg.data.styleRes) styleRes = msg.data.styleRes
                     if (outSlide === null) outShow = null
                     else if (msg.data.show) {
                         outShow = msg.data.show
@@ -177,14 +180,15 @@
                 break
             case "PROJECTS":
                 if (connected) {
-                    if (!projects) activeTab = "projects"
                     projects = msg.data
+                    // newest first
+                    projects = projects.sort((a, b) => b.created - a.created)
                 }
                 break
             case "PROJECT":
                 if (!project && msg.data && connected) {
                     project = msg.data
-                    if (!activeShow) activeTab = "project"
+                    if (!activeShow && !quickPlay) activeTab = "project"
                 }
                 break
             // case "MEDIA":
@@ -211,17 +215,52 @@
     let transition: any = { type: "fade", duration: 500 }
 
     $: layout = outShow ? GetLayout(outShow, outLayout) : null
-    $: console.log(layout, outShow, outLayout)
 
     $: totalSlides = layout ? layout.length : 0
 
     // $: filteredSlides = layout?.map((a, i) => ({...a, index: i})).filter(a => a.disabled !== true)
     function next() {
-        let index = nextSlide(layout, outSlide)
+        if (!layout) {
+            if (activeTab === "show" && activeShow) {
+                // play slide
+                send("OUT", { id: activeShow.id, index: 0, layout: activeShow.settings.activeLayout })
+                outShow = activeShow
+            }
+            return
+        }
+
+        let index = nextSlide(layout, outSlide ?? -1)
         if (index !== null) send("OUT", { id: outShow.id, index, layout: outShow.settings.activeLayout })
+        else {
+            // go to next show in project
+            let currentProjectShows = projects.find((a) => a.id === project)?.shows || []
+            let currentProjectShowIndex = currentProjectShows.findIndex((showRef: any) => showRef.id === activeShow.id)
+
+            let newIndex = currentProjectShowIndex + 1
+            let newProjectShow: any = { type: "." }
+            while (newProjectShow && (newProjectShow.type || "show") !== "show") {
+                newProjectShow = currentProjectShows[newIndex]
+                newIndex++
+            }
+
+            if (!newProjectShow) return
+
+            send("SHOW", newProjectShow.id)
+            activeTab = "show"
+
+            // play slide
+            setTimeout(() => {
+                send("OUT", { id: newProjectShow.id, index: 0, layout: activeShow.settings.activeLayout })
+                outShow = activeShow
+            }, 100)
+        }
     }
     function previous() {
-        let index = nextSlide(layout, outSlide, true)
+        if (!layout) return
+
+        // WIP go to previous show & play last slide
+
+        let index = nextSlide(layout, outSlide ?? layout.length, true)
         if (index !== null) send("OUT", { id: outShow.id, index, layout: outShow.settings.activeLayout })
     }
 
@@ -251,12 +290,10 @@
         filteredShows = []
         filteredStored.forEach((s: any) => {
             let match = search(s)
-            console.log(s, match)
             if (match) filteredShows.push({ ...s, match })
         })
         // filteredShows = sortObjectNumbers(filteredShows, "match", true) as ShowId[]
         filteredShows = filteredShows.sort((a: any, b: any) => (a.match < b.match ? -1 : a.match > b.match ? 1 : 0))
-        console.log(filteredShows)
         firstMatch = filteredShows[0]?.id || null
     }
 
@@ -272,8 +309,6 @@
     $: totalMatch = searchValue ? 0 : 0
     function search(obj: any): number {
         let match: any[] = []
-
-        console.log(sva)
 
         sva.forEach((sv: any, i: number) => {
             if (sv.length > 1) {
@@ -302,6 +337,38 @@
         else next()
     }
 
+    // shows list
+    let searchElem: any = null
+    function openShow(id: string) {
+        send("SHOW", id)
+
+        if (quickPlay) {
+            send("OUT", { id, index: 0 })
+            searchElem.select()
+        } else {
+            activeTab = "show"
+        }
+    }
+
+    function showSearchKeydown(e: any) {
+        if (e.key === "Enter") openShow(filteredShows[0].id)
+    }
+
+    // show quick play
+    let quickPlay: boolean = false
+    function toggleQuickPlay(e: any) {
+        quickPlay = e.target.checked
+        localStorage.setItem("quickPlay", quickPlay.toString())
+    }
+
+    onMount(() => {
+        try {
+            quickPlay = localStorage.getItem("quickPlay") === "true"
+        } catch (err) {
+            console.log("Unable to use LocalStorage!")
+        }
+    })
+
     let scrollElem: any
     let lyricsScroll: any
     // auto scroll
@@ -313,7 +380,18 @@
     }
 
     // TODO: outLocked
+
+    // keyboard shortcuts
+    function keydown(e: any) {
+        if ([" ", "Arrow", "Page"].includes(e.key)) e.preventDefault()
+
+        if ([" ", "ArrowRight", "PageDown"].includes(e.key)) next()
+        else if (["ArrowLeft", "PageUp"].includes(e.key)) previous()
+        else if (e.key === "Escape") send("OUT", "clear")
+    }
 </script>
+
+<svelte:window on:keydown={keydown} />
 
 {#if errors.length}
     <div class="error">
@@ -374,29 +452,27 @@
                 {/if}
             {:else if activeTab === "shows"}
                 {#if shows.length}
-                    <input type="text" class="input" placeholder="Search..." bind:value={searchValue} />
+                    <input type="text" class="input" placeholder="Search..." bind:value={searchValue} on:keydown={showSearchKeydown} bind:this={searchElem} />
                     <!-- {#each shows as showObj}
             <Button on:click={() => (show = showObj.id)}>{showObj.name}</Button>
           {/each} -->
                     <div class="scroll">
                         {#each filteredShows as show}
                             {#if searchValue.length <= 1 || show.match}
-                                <ShowButton
-                                    on:click={(e) => {
-                                        send("SHOW", e.detail)
-                                        activeTab = "show"
-                                    }}
-                                    {activeShow}
-                                    show={shows.find((s) => s.id === show.id)}
-                                    data={dateToString(show.timestamps.created, true)}
-                                    match={show.match || null}
-                                />
+                                <ShowButton on:click={(e) => openShow(e.detail)} {activeShow} show={shows.find((s) => s.id === show.id)} data={dateToString(show.timestamps.created, true)} match={show.match || null} />
                             {/if}
                         {/each}
                     </div>
                     {#if searchValue.length > 1 && totalMatch === 0}
                         <Center faded>{dictionary.empty.search}</Center>
                     {/if}
+
+                    <div class="buttons">
+                        <div class="check">
+                            <p>{dictionary.remote.quick_play}</p>
+                            <Checkbox checked={quickPlay} on:change={toggleQuickPlay} />
+                        </div>
+                    </div>
                 {:else}
                     <Center faded>{dictionary.empty.shows}</Center>
                 {/if}
@@ -415,6 +491,7 @@
                                 outShow = activeShow
                             }}
                             {outSlide}
+                            {styleRes}
                         />
                     </div>
                     {#if activeShow.id === outShow?.id}
@@ -437,9 +514,9 @@
                 {#if outShow}
                     <h2>{outShow.name}</h2>
                     <div on:click={click} class="outSlides">
-                        <Slide {outShow} {outSlide} {outLayout} {transition} />
+                        <Slide {outShow} {outSlide} {outLayout} {styleRes} {transition} />
                         {#if nextSlide(layout, outSlide) && getNextSlide(outShow, outSlide, outLayout)}
-                            <Slide {outShow} outSlide={nextSlide(layout, outSlide)} {outLayout} {transition} />
+                            <Slide {outShow} outSlide={nextSlide(layout, outSlide)} {outLayout} {styleRes} {transition} />
                         {:else}
                             <div style="display: flex;align-items: center;justify-content: center;flex: 1;opacity: 0.5;">{dictionary.remote.end}</div>
                         {/if}
@@ -470,7 +547,7 @@
                     <div on:click={click} bind:this={lyricsScroll} class="lyrics">
                         {#each layout as layoutSlide, i}
                             {#if !layoutSlide.disabled}
-                                <span style="padding: 5px;{outSlide === i ? 'background-color: rgba(0 0 0 / 0.6);color: #FFFFFF;' : ''}">
+                                <span style="padding: 5px;{outSlide === i ? 'background-color: rgba(0 0 0 / 0.6);' : ''}">
                                     <span class="group" style="opacity: 0.6;font-size: 0.8em;display: flex;justify-content: center;position: relative;">
                                         <span style="left: 0;position: absolute;">{i + 1}</span>
                                         <span>{outShow.slides[layoutSlide.id].group === null ? "" : outShow.slides[layoutSlide.id].group || "—"}</span>
@@ -714,6 +791,15 @@
     }
     .outSlides :global(.main) {
         width: 50%;
+    }
+
+    /* quick play */
+    .check {
+        display: flex;
+        background-color: var(--primary-darker);
+        justify-content: space-between;
+        padding: 10px;
+        align-items: center;
     }
 
     /* project */

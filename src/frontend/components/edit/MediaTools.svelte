@@ -23,12 +23,13 @@
 
     // update values
     $: mediaId = $activeEdit.id || $activeShow!.id
-    $: currentMedia = $media[mediaId]
+    $: currentMedia = $media[mediaId] || {}
 
     let edits: any = clone(mediaEdits.media?.edit)
     let filterEdits: any = clone(mediaFilters.media?.edit)
 
-    $: if (getMediaType(getExtension(mediaId)) === "video") addVideoOptions()
+    $: isVideo = getMediaType(getExtension(mediaId)) === "video"
+    $: if (isVideo) addVideoOptions()
     else edits = clone(mediaEdits.media?.edit)
     function addVideoOptions() {
         if (!edits) return
@@ -36,14 +37,35 @@
         edits.video = clone(videoEdit)
     }
 
+    $: if (mediaId && isVideo) getVideoDuration()
+    function getVideoDuration() {
+        let video = document.createElement("video")
+        video.setAttribute("src", mediaId)
+        video.addEventListener("loadedmetadata", loaded)
+
+        function loaded() {
+            let videoDuration = video?.duration || 0
+            if (!videoDuration) return
+
+            edits.video[2].value = currentMedia?.toTime || videoDuration
+            edits.video[1].values = { max: videoDuration }
+            edits.video[2].values = { max: videoDuration }
+        }
+    }
+
     // set values
     $: if (currentMedia) {
-        edits.default[1].value = currentMedia.flipped || false
         edits.default[0].value = currentMedia.fit || "contain"
-        if (edits.video) edits.video[0].value = currentMedia.speed || "1"
+        edits.default[1].value = currentMedia.flipped || false
+        edits.default[2].value = currentMedia.flippedY || false
+        if (edits.video) {
+            edits.video[0].value = currentMedia.speed || "1"
+            edits.video[1].value = currentMedia.fromTime || 0
+            edits.video[2].value = currentMedia.toTime || edits.video[2].value
+        }
 
         // update filters
-        let filters = getFilters(currentMedia.filter)
+        let filters = getFilters(currentMedia.filter || "")
         let defaultFilters = mediaFilters.media?.edit?.default || []
         filterEdits.default.forEach((filter: any) => {
             let value = filters[filter.key] ?? defaultFilters.find((a) => a.key === filter.key)?.value
@@ -53,7 +75,7 @@
     }
 
     function reset() {
-        let deleteKeys: string[] = ["flipped", "fit", "speed"]
+        let deleteKeys: string[] = ["flipped", "flippedY", "fit", "speed", "fromTime", "toTime"]
 
         // reset
         if (active === "filters") deleteKeys = ["filter"]
@@ -77,8 +99,9 @@
         updateStore("media", { keys: [mediaId, input.id], value })
 
         // update output filters
-        let currentOutput: any = $outputs[getActiveOutputs()[0]]
+        let currentOutput: any = $outputs[getActiveOutputs()[0]] || {}
         if (!currentOutput.out?.background || currentOutput.out?.background?.path !== mediaId) return
+
         let bg = currentOutput.out.background
         bg[input.id] = value
         setOutput("background", bg)

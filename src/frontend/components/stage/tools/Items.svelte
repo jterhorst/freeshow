@@ -1,35 +1,47 @@
 <script lang="ts">
-    import { activeStage, stageShows, timers } from "../../../stores"
-    import { keysToID } from "../../helpers/array"
+    import type { Popups } from "../../../../types/Main"
+    import type { DrawerTabIds } from "../../../../types/Tabs"
+    import { activeDrawerTab, activePage, activePopup, activeStage, drawer, drawerTabsData, outputs, stageShows, timers, variables } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
-    import { getResolution } from "../../helpers/output"
     import T from "../../helpers/T.svelte"
+    import { keysToID, sortByName } from "../../helpers/array"
+    import { checkWindowCapture, getActiveOutputs, getResolution } from "../../helpers/output"
     import Button from "../../inputs/Button.svelte"
+    import Center from "../../system/Center.svelte"
     import Panel from "../../system/Panel.svelte"
     import { updateStageShow } from "../stage"
 
-    // TODO: more stage features
     const titles = {
         // slide_background ++
         slide: ["current_slide_text", "current_slide", "current_slide_notes", "next_slide_text", "next_slide", "next_slide_notes"],
-        output: ["current_output"],
-        time: ["system_clock"], // , "video_time", "video_countdown"
-        global_timers: ["{timers}"],
+        output: ["current_output", "slide_tracker"],
+        time: ["system_clock", "video_time", "video_countdown"],
+        global_timers: ["first_active_timer", "{timers}"],
+        variables: ["{variables}"],
         // other: ["chords", "message"],
     }
+    const customIcons = {
+        current_output: "screen",
+        slide_tracker: "percentage",
+        video_time: "clock",
+        video_countdown: "clock",
+    }
+
+    $: stageShow = $stageShows[$activeStage.id || ""] || {}
+    $: stageOutputId = stageShow?.settings?.output || getActiveOutputs($outputs, true, true)[0]
 
     let enabledItems: any
-    $: enabledItems = $activeStage.id ? $stageShows[$activeStage.id].items : []
+    $: enabledItems = stageShow.items || []
     function click(item: string) {
         if (!$activeStage.id) return
 
         let resolution = getResolution()
         let style = `
-      width: ${resolution.width / 2}px;
-      height: ${resolution.height / 2}px;
-      left: ${resolution.width / 4}px;
-      top: ${resolution.height / 4}px;
-    `
+            width: ${resolution.width / 2}px;
+            height: ${resolution.height / 2}px;
+            left: ${resolution.width / 4}px;
+            top: ${resolution.height / 4}px;
+        `
 
         stageShows.update((ss) => {
             if (!enabledItems[item]) enabledItems[item] = { enabled: true, style, align: "" }
@@ -37,6 +49,16 @@
             else enabledItems[item].enabled = true
             return ss
         })
+
+        // select item
+        if (enabledItems[item]?.enabled === true && $activeStage.items.length) {
+            activeStage.update((a) => {
+                a.items = [item]
+                return a
+            })
+        }
+
+        if (item === "output#current_output") checkWindowCapture()
 
         if (!timeout) {
             updateStageShow()
@@ -49,30 +71,102 @@
 
     let timeout: any = null
 
-    let timersList: any[] = []
-    $: if (Object.keys($timers).length) timersList = keysToID($timers)
+    let timersList: any[] = sortByName(keysToID($timers))
+    let variablesList: any[] = sortByName(keysToID($variables))
+
+    const drawerPages: { [key: string]: DrawerTabIds } = {
+        timer: "calendar",
+        variables: "overlays",
+    }
+    function openDrawer(id: string) {
+        activePage.set("show")
+
+        // set sub tab
+        let drawerPageId = drawerPages[id]
+        if (!drawerPageId) return
+
+        drawerTabsData.update((a) => {
+            if (!a[drawerPageId]) a[drawerPageId] = { enabled: true, activeSubTab: null }
+            a[drawerPageId].activeSubTab = id
+
+            return a
+        })
+
+        activeDrawerTab.set(drawerPageId)
+
+        // open drawer
+        if ($drawer.height <= 40) {
+            drawer.set({ height: 300, stored: $drawer.height })
+        }
+
+        // create new popup
+        let popupId = id
+        if (popupId === "variables") popupId = "variable"
+        activePopup.set(popupId as Popups)
+    }
 </script>
 
 <div class="main">
     <Panel>
         {#each Object.entries(titles) as [title, items], i}
-            {#if i > 0}<hr />{/if}
-
             {#if title === "global_timers"}
                 <h6><T id="tabs.timers" /></h6>
-                {#each timersList as timer}
-                    <Button on:click={() => click(title + "#" + timer.id)} active={enabledItems[title + "#" + timer.id]?.enabled} style="width: 100%;" bold={false}>
+                {#if timersList.length}
+                    <Button on:click={() => click(title + "#first_active_timer")} active={enabledItems[title + "#first_active_timer"]?.enabled} style="width: 100%;" bold={false}>
                         <Icon id="timer" right />
-                        <span class="overflow">{timer.name}</span>
+                        <span class="overflow"><T id="stage.first_active_timer" /></span>
                     </Button>
-                {/each}
+                    {#each timersList as timer}
+                        <Button on:click={() => click(title + "#" + timer.id)} active={enabledItems[title + "#" + timer.id]?.enabled} style="width: 100%;" bold={false}>
+                            <Icon id="timer" right />
+                            <span class="overflow">{timer.name}</span>
+                        </Button>
+                    {/each}
+                {:else}
+                    <Center>
+                        <span style="opacity: 0.5;"><T id="empty.general" /></span>
+
+                        <Button on:click={() => openDrawer("timer")} style="width: 100%;margin-top: 5px;" center>
+                            <Icon id="add" right />
+                            <T id="new.timer" />
+                        </Button>
+                    </Center>
+                {/if}
+            {:else if title === "variables"}
+                <h6><T id="tabs.variables" /></h6>
+                {#if variablesList.length}
+                    {#each variablesList as variable}
+                        <Button on:click={() => click(title + "#" + variable.id)} active={enabledItems[title + "#" + variable.id]?.enabled} style="width: 100%;" bold={false}>
+                            <Icon id="variable" right />
+                            <span class="overflow">{variable.name}</span>
+                        </Button>
+                    {/each}
+                {:else}
+                    <Center>
+                        <span style="opacity: 0.5;"><T id="empty.general" /></span>
+
+                        <Button on:click={() => openDrawer("variables")} style="width: 100%;margin-top: 5px;" center>
+                            <Icon id="add" right />
+                            <T id="new.variable" />
+                        </Button>
+                    </Center>
+                {/if}
             {:else}
-                <h6><T id="stage.{title}" /></h6>
+                {#if i > 0}<h6><T id="stage.{title}" /></h6>{/if}
+
                 {#each items as item}
                     <Button on:click={() => click(title + "#" + item)} active={enabledItems[title + "#" + item]?.enabled} style="width: 100%;" bold={false}>
-                        <Icon id={item === "current_output" ? "screen" : item.split("_")[item.split("_").length - 1]} right />
+                        <Icon id={customIcons[item] || item.split("_")[item.split("_").length - 1]} right />
                         <span class="overflow"><T id="stage.{item}" /></span>
                     </Button>
+
+                    <!-- alpha key output -->
+                    {#if item === "current_output" && $outputs[stageOutputId]?.keyOutput}
+                        <Button on:click={() => click(title + "#current_output_alpha")} active={enabledItems[title + "#current_output_alpha"]?.enabled} style="width: 100%;" bold={false}>
+                            <Icon id={"screen"} right />
+                            <span class="overflow"><T id="settings.enable_key_output" /></span>
+                        </Button>
+                    {/if}
                 {/each}
             {/if}
         {/each}
@@ -81,7 +175,7 @@
 
 <style>
     .main :global(button.active) {
-        font-weight: bold;
+        font-weight: 600;
     }
 
     .overflow {

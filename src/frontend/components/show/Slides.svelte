@@ -1,51 +1,54 @@
 <script lang="ts">
-    // import {flip} from 'svelte/animate';
-    // import type { Resolution } from "../../../types/Settings"
-
-    import { activeShow, cachedShowsData, notFound, outLocked, outputs, showsCache, slidesOptions, styles } from "../../stores"
+    import { activePage, activePopup, alertMessage, cachedShowsData, focusMode, lessonsLoaded, notFound, outLocked, outputs, showsCache, slidesOptions, special, styles, videoExtensions } from "../../stores"
+    import { customActionActivation } from "../actions/actions"
     import { history } from "../helpers/history"
+    import Icon from "../helpers/Icon.svelte"
+    import { encodeFilePath, getExtension } from "../helpers/media"
     import { getActiveOutputs, refreshOut, setOutput } from "../helpers/output"
+    import { getCachedShow } from "../helpers/show"
     import { getItemWithMostLines, updateOut } from "../helpers/showActions"
     import { _show } from "../helpers/shows"
     import T from "../helpers/T.svelte"
+    import Button from "../inputs/Button.svelte"
     import Loader from "../main/Loader.svelte"
     import Slide from "../slide/Slide.svelte"
     import Autoscroll from "../system/Autoscroll.svelte"
     import Center from "../system/Center.svelte"
     import DropArea from "../system/DropArea.svelte"
     import TextEditor from "./TextEditor.svelte"
-    // import { GetLayout } from "../helpers/get"
 
-    // let viewWidth: number = window.innerWidth / 3
-    // let resolution: Resolution = $showsCache[showId].settings.resolution || $screen.resolution
-    // let zoom = 0.15
-    // console.log(elem)
+    export let showId: string
+    export let layout: string = ""
 
-    // = width / main padding - slide padding - extra - columns*gaps/padding / columns / resolution
-    // $: zoom = (viewWidth - 20 - 0 - 0 - ($slidesOptions.columns - 1) * (10 + 0)) / $slidesOptions.columns / resolution.width
-    $: showId = $activeShow?.id || ""
     $: currentShow = $showsCache[showId]
-    $: activeLayout = $showsCache[showId]?.settings?.activeLayout
-    // $: layoutSlides = GetLayout(showId, activeLayout)
-    // $: layoutSlides = [$showsCache[showId]?.layouts?.[activeLayout]?.slides, GetLayout(showId)][1]
-    // $: layoutSlides = _show(showId).layouts(activeLayout).ref()[0]
-    $: layoutSlides = $cachedShowsData[showId]?.layout || []
+    $: activeLayout = layout || $showsCache[showId]?.settings?.activeLayout
+    $: layoutSlides = currentShow ? getCachedShow(showId, activeLayout, $cachedShowsData)?.layout || [] : []
+
+    // fix broken media
+    $: if (showId) fixBrokenMedia()
+    function fixBrokenMedia() {
+        if (!currentShow) return
+        showsCache.update((a) => {
+            Object.entries(currentShow.layouts).forEach(([layoutId, layout]) => {
+                layout.slides.forEach((slide, i) => {
+                    let backgroundId = slide.background
+                    if (backgroundId && !currentShow.media[backgroundId]) {
+                        delete a[showId].layouts[layoutId].slides[i].background
+                    }
+                })
+            })
+            return a
+        })
+    }
 
     let scrollElem: any
     let offset: number = -1
-    // let behaviour: string = ""
-    // setTimeout(() => (behaviour = "scroll-behavior: smooth;"), 50)
     $: {
-        // output.out?.slide?.id !== null &&
         let output = $outputs[activeOutputs[0]] || {}
-        if (scrollElem && showId === output.out?.slide?.id && activeLayout === output.out?.slide?.layout) {
+        if (loaded && scrollElem && showId === output.out?.slide?.id && activeLayout === output.out?.slide?.layout) {
             let columns = $slidesOptions.mode === "grid" ? ($slidesOptions.columns > 2 ? $slidesOptions.columns : 0) : 1
             let index = Math.max(0, (output.out.slide.index || 0) - columns)
             offset = (scrollElem.querySelector(".grid")?.children[index]?.offsetTop || 5) - 5
-
-            // TODO: always show active slide....
-            // console.log(offset, scrollElem.scrollTop, scrollElem.scrollTop + scrollElem.offsetHeight)
-            // if (offset < scrollElem.scrollTop || offset > scrollElem.scrollTop + scrollElem.offsetHeight) offset = scrollElem.querySelector(".grid").children[s.index].offsetTop - 5
         }
     }
 
@@ -58,7 +61,7 @@
         slidesOptions.set({ ...$slidesOptions, columns: Math.max(2, Math.min(10, $slidesOptions.columns + (e.deltaY < 0 ? -1 : 1))) })
 
         // don't start timeout if scrolling with mouse
-        if (e.deltaY > 100 || e.deltaY < -100) return
+        if (e.deltaY >= 100 || e.deltaY <= -100) return
         nextScrollTimeout = setTimeout(() => {
             nextScrollTimeout = null
         }, 500)
@@ -68,11 +71,11 @@
         // TODO: duplicate function of "preview:126 - updateOut"
         if ($outLocked || e.ctrlKey || e.metaKey || e.shiftKey) return
 
-        let slideRef: any = _show("active").layouts("active").ref()[0]
-        updateOut("active", index, slideRef, !e.altKey)
+        customActionActivation("slide_click")
 
-        // if (activeOutputs[0]?.out?.slide?.id === id && activeOutputs[0]?.out?.slide?.index === index && activeOutputs[0]?.out?.slide?.layout === activeLayout) return
-        // outSlide.set({ id, layout: activeLayout, index })
+        let slideRef: any = _show(showId).layouts([activeLayout]).ref()[0]
+        updateOut(showId, index, slideRef, !e.altKey)
+
         setOutput("slide", { id: showId, layout: activeLayout, index, line: 0 })
 
         // force update output if index is the same as previous
@@ -89,9 +92,69 @@
         } else endIndex = null
     }
 
-    $: if (showId && currentShow?.settings?.template && $cachedShowsData[showId]?.template?.slidesUpdated === false) {
-        // update show by its template
-        history({ id: "TEMPLATE", save: false, newData: { id: currentShow.settings.template }, location: { page: "show" } })
+    // update show by its template
+    $: gridMode = $slidesOptions.mode === "grid" || $slidesOptions.mode === "simple"
+    $: if (showId && gridMode && !isLessons && loaded) setTimeout(updateTemplate, 100)
+    function updateTemplate() {
+        if (!loaded) return
+
+        let showTemplate = currentShow?.settings?.template || ""
+        history({ id: "TEMPLATE", save: false, newData: { id: showTemplate }, location: { page: "show" } })
+    }
+
+    $: if (showId && $special.capitalize_words) capitalizeWords()
+    function capitalizeWords() {
+        // keep letters and spaces
+        const regEx = /[^a-zA-Z\s]+/
+
+        let capitalized = false
+        let slides = _show(showId).get("slides") || {}
+        Object.keys(slides).forEach((slideId) => {
+            let slide = slides[slideId]
+
+            slide.items.forEach((item) => {
+                if (!item.lines) return
+
+                item.lines.forEach((line) => {
+                    line?.text.forEach((text) => {
+                        let newValue = capitalize(text.value)
+                        if (text.value !== newValue) capitalized = true
+                        text.value = newValue
+                    })
+                })
+            })
+        })
+
+        if (!capitalized) return
+
+        showsCache.update((a) => {
+            a[showId].slides = slides
+            return a
+        })
+
+        function capitalize(value: string) {
+            $special.capitalize_words.split(",").forEach((newWord) => {
+                newWord = newWord.trim().toLowerCase()
+                if (!newWord.length) return
+
+                value = value
+                    .split(" ")
+                    .map((word) => {
+                        if (word.replace(regEx, "").toLowerCase() !== newWord) return word
+
+                        let matching = word.toLowerCase().indexOf(newWord)
+                        if (matching >= 0) {
+                            let capitalized = newWord[0]?.toUpperCase() + word.slice(1)
+                            word = word.slice(0, matching) + capitalized + word.slice(matching + capitalized.length)
+                        }
+
+                        return word
+                    })
+                    .join(" ")
+            })
+
+            return value
+        }
     }
 
     let altKeyPressed: boolean = false
@@ -105,38 +168,42 @@
         altKeyPressed = false
     }
 
-    $: activeOutputs = getActiveOutputs($outputs, false)
+    $: activeOutputs = getActiveOutputs($outputs, false, true)
 
     let activeSlides: any[] = []
     $: {
         activeSlides = []
         activeOutputs.forEach((a) => {
             let currentOutput: any = $outputs[a]
-            let currentStyle = $styles[currentOutput?.style || ""] || {}
-            if (!currentOutput) return
+            if (!currentOutput || currentOutput.stageOutput) return
 
+            let currentStyle = $styles[currentOutput?.style || ""] || {}
             let outSlide: any = currentOutput.out?.slide || {}
 
-            // console.log(s, slideIndex, id, activeLayout)
-            if (!activeSlides[outSlide.index] && outSlide.id === showId && outSlide.layout === activeLayout) {
-                // get progress of current line division
-                let amountOfLinesToShow: number = currentStyle.lines !== undefined ? Number(currentStyle.lines) : 0
-                let lineIndex: any = outSlide.line || 0
-                let maxLines: number = 0
-                if (amountOfLinesToShow > 0) {
-                    let ref = a?.id === "temp" ? [{ temp: true, items: outSlide.tempItems }] : _show(outSlide.id).layouts([outSlide.layout]).ref()[0]
-                    let showSlide = outSlide.index !== undefined ? _show(outSlide.id).slides([ref[outSlide.index].id]).get()[0] : null
-                    let slideLines = showSlide ? getItemWithMostLines(showSlide) : null
-                    maxLines = slideLines && lineIndex !== null ? (amountOfLinesToShow >= slideLines ? 0 : Math.round(slideLines / amountOfLinesToShow)) : 0
-                }
+            if (activeSlides[outSlide.index] || outSlide.id !== showId || outSlide.layout !== activeLayout) return
 
-                activeSlides[outSlide.index] = {
-                    color: $outputs[a].color,
-                    line: lineIndex,
-                    maxLines,
-                }
+            // get progress of current line division
+            let amountOfLinesToShow: number = currentStyle.lines !== undefined ? Number(currentStyle.lines) : 0
+            let lineIndex: any = outSlide.line || 0
+            let maxLines: number = 0
+            if (amountOfLinesToShow > 0) {
+                let ref = a?.id === "temp" ? [{ temp: true, items: outSlide.tempItems }] : _show(outSlide.id).layouts([outSlide.layout]).ref()[0]
+                let showSlide = outSlide.index !== undefined ? _show(outSlide.id).slides([ref[outSlide.index]?.id]).get()[0] : null
+                let slideLines = showSlide ? getItemWithMostLines(showSlide) : null
+                maxLines = slideLines && lineIndex !== null ? (amountOfLinesToShow >= slideLines ? 0 : Math.ceil(slideLines / amountOfLinesToShow)) : 0
+            }
+
+            activeSlides[outSlide.index] = {
+                color: $outputs[a].color,
+                line: lineIndex,
+                maxLines,
             }
         })
+    }
+
+    function createSlide() {
+        history({ id: "SLIDES" })
+        activePage.set("edit")
     }
 
     // lazy loader
@@ -150,24 +217,109 @@
 
     $: if (!loaded && !lazyLoading && layoutSlides?.length) {
         lazyLoading = true
-        lazyLoader = 1
+        lazyLoader = 0
         startLazyLoader()
     }
 
+    $: isLessons = currentShow?.category === "lessons"
+    // let showLessonsAlert: boolean = false
+    let lessonsFailed: number = 0
+    // let currentTries: number = 0
+    let lessonsTimeout: any = null
+
+    $: if (isLessons && $lessonsLoaded) startLazyLoader()
+
     let lazyLoading: boolean = false
-    function startLazyLoader() {
-        if (!layoutSlides) return
+    async function startLazyLoader() {
+        if (!layoutSlides || timeout) return
+
         if (lazyLoader >= layoutSlides.length) {
             loaded = true
             lazyLoading = false
+
             return
         }
-        if (timeout) clearTimeout(timeout)
 
-        timeout = setTimeout(() => {
-            lazyLoader++
+        // check that media has loaded
+        if (isLessons) {
+            timeout = true
+            if (lessonsTimeout) clearTimeout(lessonsTimeout)
+
+            let count = $lessonsLoaded[showId]
+            if (count === undefined) {
+                lessonsTimeout = setTimeout(async () => {
+                    // might already be done (check first slide)
+                    let mediaId = layoutSlides[lazyLoader]?.background
+                    let mediaPath = currentShow.media?.[mediaId]?.path || ""
+                    let exists = await checkImage(mediaPath)
+
+                    if (exists) {
+                        lazyLoader = layoutSlides.length
+                        loaded = true
+                        lazyLoading = false
+
+                        return
+                    }
+
+                    // could not load
+                    lazyLoader++
+                    lessonsFailed++
+                    startLazyLoader()
+                }, 800)
+
+                timeout = null
+                return
+            }
+
+            let downloaded = count.finished + count.failed
+
+            // ensure media is loaded before initializing cache loading
+            lazyLoader = downloaded
+            lessonsFailed = count.failed
+
+            if (downloaded < layoutSlides.length) {
+                alertMessage.set(`Please wait! Downloading Lessons.church media ${downloaded + 1}/${layoutSlides.length} ...`)
+                activePopup.set("alert")
+            } else {
+                if (lessonsFailed) alertMessage.set(`Something went wrong!<br>Could not get ${count.failed} files of total ${layoutSlides.length}!<br><br>The files might have expired, but you can try importing again`)
+                else alertMessage.set(`Downloaded ${layoutSlides.length} files!`)
+                activePopup.set("alert")
+
+                loaded = true
+                lazyLoading = false
+                lessonsLoaded.set({})
+            }
+
+            timeout = null
+            return
+        }
+
+        timeout = setTimeout(next, 10)
+
+        function next() {
+            lazyLoader += $focusMode ? 20 : 4
+            timeout = null
             startLazyLoader()
-        }, 10)
+        }
+    }
+
+    function checkImage(src: string) {
+        let isVideo = $videoExtensions.includes(getExtension(src))
+        let media: any = new Image()
+        if (isVideo) media = document.createElement("video")
+
+        return new Promise((resolve) => {
+            if (isVideo)
+                media.onloadeddata = () => {
+                    resolve(true)
+                }
+            else media.onload = () => resolve(true)
+            media.onerror = () => {
+                resolve(false)
+            }
+
+            media.src = encodeFilePath(src)
+        })
     }
 
     let loading: boolean = false
@@ -185,11 +337,7 @@
 
 <svelte:window on:keydown={keydown} on:keyup={keyup} on:mousedown={keyup} />
 
-<Autoscroll class="context #shows__close" on:wheel={wheel} {offset} bind:scrollElem style="display: flex;">
-    <!-- on:drop={(e) => {
-      if (selected.length && e.dataTransfer && ($dragged === "slide" || $dragged === "slideGroup")) drop(e.dataTransfer.getData("text"))
-    }}
-    on:dragover|preventDefault -->
+<Autoscroll class={$focusMode || currentShow?.locked ? "" : "context #shows__close"} on:wheel={wheel} {offset} bind:scrollElem style="display: flex;">
     <DropArea id="all_slides" selectChildren>
         <DropArea id="slides" hoverTimeout={0} selectChildren>
             {#if $showsCache[showId] === undefined}
@@ -204,11 +352,11 @@
                 <TextEditor {currentShow} />
             {:else}
                 <div class="grid">
-                    <!-- {#each Object.values($showsCache[id].slides) as slide, i} -->
                     {#if layoutSlides.length}
                         {#each layoutSlides as slide, i}
                             {#if (loaded || i < lazyLoader) && currentShow.slides[slide.id] && ($slidesOptions.mode === "grid" || !slide.disabled)}
                                 <Slide
+                                    {showId}
                                     slide={currentShow.slides[slide.id]}
                                     show={currentShow}
                                     {layoutSlides}
@@ -222,18 +370,21 @@
                                     columns={$slidesOptions.columns}
                                     icons
                                     {altKeyPressed}
+                                    disableThumbnails={isLessons && !loaded}
                                     on:click={(e) => slideClick(e, i)}
                                 />
                             {/if}
                         {/each}
                     {:else}
-                        <Center faded absolute size={2}>
-                            <T id="empty.slides" />
+                        <Center absolute size={2}>
+                            <span style="opacity: 0.5;"><T id="empty.slides" /></span>
                             <!-- Add slides button -->
+                            <Button on:click={createSlide} style="font-size: initial;margin-top: 10px;" dark center>
+                                <Icon id="add" right />
+                                <T id="new.slide" />
+                            </Button>
                         </Center>
                     {/if}
-
-                    <!-- TODO: snap to width! (Select columns instead of manual zoom size) -->
                 </div>
             {/if}
         </DropArea>
@@ -241,16 +392,9 @@
 </Autoscroll>
 
 <style>
-    /* .scroll {
-    padding-bottom: 10px;
-  } */
-
     .grid {
         display: flex;
         flex-wrap: wrap;
-        /* gap: 10px; */
         padding: 5px;
-        /* height: 100%; */
-        /* align-content: flex-start; */
     }
 </style>

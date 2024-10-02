@@ -1,17 +1,22 @@
 <script lang="ts">
-    import { READ_FOLDER } from "../../../../types/Channels"
-    import { activeShow, audioFolders, dictionary, media, outLocked, playingAudio } from "../../../stores"
-    import { getAudioDuration, playAudio } from "../../helpers/audio"
-    import { splitPath } from "../../helpers/get"
+    import { onDestroy } from "svelte"
+    import { uid } from "uid"
+    import { MAIN, READ_FOLDER } from "../../../../types/Channels"
+    import { activePlaylist, activeRename, audioFolders, audioPlaylists, dictionary, drawerTabsData, media } from "../../../stores"
+    import { destroy, send } from "../../../utils/request"
     import Icon from "../../helpers/Icon.svelte"
-    import { getMediaType } from "../../helpers/media"
     import T from "../../helpers/T.svelte"
-    import { joinTime, secondsToTime } from "../../helpers/time"
+    import { clone, sortByName } from "../../helpers/array"
+    import { startPlaylist, stopPlaylist, updatePlaylist } from "../../helpers/audio"
+    import { splitPath } from "../../helpers/get"
+    import { getFileName, getMediaType } from "../../helpers/media"
     import Button from "../../inputs/Button.svelte"
     import Center from "../../system/Center.svelte"
-    import SelectElem from "../../system/SelectElem.svelte"
+    import DropArea from "../../system/DropArea.svelte"
+    import AudioStreams from "../live/AudioStreams.svelte"
     import Microphones from "../live/Microphones.svelte"
     import Folder from "../media/Folder.svelte"
+    import AudioFile from "./AudioFile.svelte"
 
     export let active: string | null
     export let searchValue: string = ""
@@ -19,9 +24,21 @@
     let files: any[] = []
     let scrollElem: any
 
-    $: rootPath = active === "all" || active === "favourites" || active === "microphones" ? "" : active !== null ? $audioFolders[active].path! : ""
-    $: path = active === "all" || active === "favourites" || active === "microphones" ? "" : rootPath
-    $: name = active === "all" ? "category.all" : active === "favourites" ? "category.favourites" : rootPath === path ? (active !== "microphones" && active !== null ? $audioFolders[active].name : "") : splitPath(path).name
+    $: playlist = active && $audioPlaylists[active]
+
+    $: isDefault = ["all", "favourites", "microphones", "audio_streams"].includes(active || "")
+    $: rootPath = isDefault || playlist ? "" : active !== null ? $audioFolders[active]?.path! || "" : ""
+    $: path = isDefault || playlist ? "" : rootPath
+    $: name =
+        active === "all"
+            ? "category.all"
+            : active === "favourites"
+              ? "category.favourites"
+              : rootPath === path
+                ? active !== "microphones" && active !== "audio_streams" && active !== null
+                    ? $audioFolders[active]?.name || ""
+                    : ""
+                : splitPath(path).name
 
     // get list of files & folders
     let prevActive: null | string = null
@@ -31,7 +48,7 @@
             files = Object.entries($media)
                 .map(([path, a]: any) => {
                     let p = splitPath(path)
-                    name = p.name
+                    let name = p.name
                     return { path, favourite: a.favourite === true, name, extension: p.extension, audio: a.audio === true }
                 })
                 .filter((a) => a.favourite === true && a.audio === true)
@@ -42,16 +59,16 @@
             if (active !== prevActive) {
                 prevActive = active
                 files = []
-                Object.values($audioFolders).forEach((data) => window.api.send(READ_FOLDER, { path: data.path }))
+                Object.values($audioFolders).forEach((data) => send(MAIN, ["READ_FOLDER"], { path: data.path, disableThumbnails: true }))
             }
         } else if (path.length) {
             if (path !== prevActive) {
                 prevActive = path
                 files = []
-                window.api.send(READ_FOLDER, { path, listFilesInFolders: true })
+                send(MAIN, ["READ_FOLDER"], { path, listFilesInFolders: true, disableThumbnails: true })
             }
         } else {
-            // microphones
+            // microphones & audio_streams
             prevActive = active
         }
     }
@@ -59,29 +76,35 @@
     let filesInFolders: string[] = []
     $: console.log(filesInFolders)
 
+    let listenerId = uid()
+    onDestroy(() => destroy(READ_FOLDER, listenerId))
+
     // receive files
-    window.api.receive(READ_FOLDER, (msg: any) => {
-        filesInFolders = (msg.filesInFolders || []).sort((a: any, b: any) => a.name.localeCompare(b.name))
+    window.api.receive(READ_FOLDER, receiveContent, listenerId)
+    function receiveContent(msg: any) {
+        filesInFolders = sortByName(msg.filesInFolders || [])
 
         if (active === "all" || msg.path === path) {
             files.push(...msg.files.filter((file: any) => getMediaType(file.extension) === "audio" || (active !== "all" && file.folder)))
-            files.sort((a: any, b: any) => a.name.localeCompare(b.name)).sort((a: any, b: any) => (a.folder === b.folder ? 0 : a.folder ? -1 : 1))
+            files = sortByName(files).sort((a: any, b: any) => (a.folder === b.folder ? 0 : a.folder ? -1 : 1))
 
-            console.log(files)
-            files = files
+            files = files.map((a) => ({ ...a, path: a.folder ? a.path : a.path }))
 
             // filterFiles()
             scrollElem?.scrollTo(0, 0)
         }
-    })
+    }
 
     // search
     $: if (searchValue !== undefined || files) filterSearch()
     const filter = (s: string) => s.toLowerCase().replace(/[.,\/#!?$%\^&\*;:{}=\-_`~()]/g, "")
     let fullFilteredFiles: any[] = []
     function filterSearch() {
-        fullFilteredFiles = JSON.parse(JSON.stringify(files))
-        if (searchValue.length > 1) fullFilteredFiles = [...fullFilteredFiles, ...filesInFolders].filter((a) => filter(a.name).includes(searchValue))
+        fullFilteredFiles = clone(files)
+        if (searchValue.length > 1) fullFilteredFiles = [...fullFilteredFiles, ...filesInFolders].filter((a) => filter(a.name).includes(filter(searchValue)))
+
+        // scroll to top
+        document.querySelector("svelte-virtual-list-viewport")?.scrollTo(0, 0)
     }
 
     function keydown(e: any) {
@@ -106,6 +129,33 @@
         const lastSlash = path.lastIndexOf("\\") > -1 ? path.lastIndexOf("\\") : path.lastIndexOf("/")
         const folder = path.slice(0, lastSlash)
         path = folder.length > rootPath.length ? folder : rootPath
+    }
+
+    function createPlaylist() {
+        let playlistName = ""
+        if (!isDefault) {
+            playlistName = name
+            if (name.includes(".")) playlistName = $dictionary.category?.[name.slice(name.indexOf(".") + 1)]
+        }
+
+        let playlistId = uid()
+        audioPlaylists.update((a) => {
+            a[playlistId] = {
+                name: playlistName,
+                songs: isDefault ? [] : fullFilteredFiles.filter((a) => !a.folder).map((a) => a.path),
+            }
+
+            return a
+        })
+
+        drawerTabsData.update((a) => {
+            a.audio.activeSubTab = playlistId
+            return a
+        })
+
+        if (isDefault) {
+            activeRename.set("category_audio_" + playlistId)
+        }
     }
 
     // function playAudio(file: any) {
@@ -170,6 +220,20 @@
     <div class="grid" style="height: 100%;">
         {#if active === "microphones"}
             <Microphones />
+        {:else if active === "audio_streams"}
+            <AudioStreams />
+        {:else if playlist}
+            <DropArea id="audio_playlist" selectChildren let:fileOver file>
+                {#if playlist.songs.length}
+                    {#each playlist.songs as song, index}
+                        <AudioFile path={song} name={getFileName(song)} {active} playlist {index} {fileOver} />
+                    {/each}
+                {:else}
+                    <Center faded>
+                        <T id="empty.general" />
+                    </Center>
+                {/if}
+            </DropArea>
         {:else if fullFilteredFiles.length}
             {#key rootPath}
                 {#key path}
@@ -177,41 +241,7 @@
                         {#if file.folder}
                             <Folder bind:rootPath={path} name={file.name} path={file.path} mode="list" />
                         {:else}
-                            <SelectElem id="audio" data={{ path: file.path, name: file.name }} draggable>
-                                <Button
-                                    class="context #audio_button"
-                                    outline={$playingAudio[file.path]}
-                                    active={$activeShow?.id === file.path}
-                                    border
-                                    style="width: 100%;"
-                                    title={file.path}
-                                    bold={false}
-                                    on:click={(e) => {
-                                        if ($outLocked || e.ctrlKey || e.metaKey) return
-                                        playAudio({ path: file.path, name: file.name })
-                                    }}
-                                    on:dblclick={(e) => {
-                                        if (e.ctrlKey || e.metaKey) return
-                                        activeShow.set({ id: file.path, name: file.name, type: "audio" })
-                                    }}
-                                >
-                                    <span>
-                                        <Icon
-                                            id={$playingAudio[file.path]?.paused === true ? "play" : $playingAudio[file.path]?.paused === false ? "pause" : $media[file.path]?.favourite === true && active !== "favourites" ? "star" : "music"}
-                                            white={$playingAudio[file.path]?.paused === true || (!$playingAudio[file.path] && ($media[file.path]?.favourite !== true || active === "favourites"))}
-                                            right
-                                        />
-                                        <p>{file.name.slice(0, file.name.lastIndexOf("."))}</p>
-                                    </span>
-                                    <span style="opacity: 0.8;">
-                                        {#await getAudioDuration(file.path)}
-                                            <p>00:00</p>
-                                        {:then duration}
-                                            <p>{joinTime(secondsToTime(duration))}</p>
-                                        {/await}
-                                    </span>
-                                </Button>
-                            </SelectElem>
+                            <AudioFile path={file.path} name={file.name} {active} />
                         {/if}
                     {/each}
                 {/key}
@@ -224,23 +254,58 @@
     </div>
 </div>
 
-{#if active !== "microphones"}
+{#if active !== "microphones" && active !== "audio_streams"}
     <div class="tabs" style="display: flex;align-items: center;">
-        <Button disabled={rootPath === path} title={$dictionary.actions?.back} on:click={goBack}>
-            <Icon size={1.3} id="back" />
-        </Button>
+        {#if isDefault}
+            <span style="padding: 0.2em;opacity: 0;">.</span>
+        {:else if playlist}
+            <Button title={$activePlaylist?.id === active ? $dictionary.media?.stop : $dictionary.media?.play} on:click={() => ($activePlaylist?.id === active ? stopPlaylist() : startPlaylist(active))}>
+                <Icon size={1.3} id={$activePlaylist?.id === active ? "stop" : "play"} white={$activePlaylist?.id === active} />
+            </Button>
+            <Button
+                title={$dictionary.media?.toggle_shuffle}
+                on:click={() => {
+                    if (!active) return
+                    updatePlaylist(active, "mode", $audioPlaylists[active]?.mode === "shuffle" ? "default" : "shuffle")
+                    // if ($activePlaylist?.id === active) playlistNext("", $activePlaylist.active)
+                }}
+            >
+                <Icon size={1.3} id="shuffle_play" white={$audioPlaylists[active || ""]?.mode !== "shuffle"} />
+            </Button>
+            <Button
+                title={$dictionary.media?._loop}
+                on:click={() => {
+                    if (!active) return
+                    updatePlaylist(active, "loop", $audioPlaylists[active]?.loop === undefined ? false : !$audioPlaylists[active]?.loop)
+                }}
+            >
+                <Icon size={1.3} id="loop" white={$audioPlaylists[active || ""]?.loop === false} />
+            </Button>
+        {:else}
+            <Button disabled={rootPath === path} title={$dictionary.actions?.back} on:click={goBack}>
+                <Icon size={1.3} id="back" />
+            </Button>
+        {/if}
         <!-- <Button disabled={rootPath === path} title={$dictionary.actions?.home} on:click={() => (path = rootPath)}>
             <Icon size={1.3} id="home" />
         </Button> -->
         <span style="flex: 1;text-align: center;">
             {#key name}
-                {#if name.includes(".")}
+                {#if name?.includes(".")}
                     <T id={name} />
+                {:else if playlist}
+                    {playlist.name}
                 {:else}
                     {name}
                 {/if}
             {/key}
         </span>
+
+        {#if !playlist}
+            <Button disabled={!fullFilteredFiles.filter((a) => !a.folder)?.length} title={$dictionary.new?.playlist} on:click={createPlaylist}>
+                <Icon size={1.3} id="playlist_create" />
+            </Button>
+        {/if}
     </div>
 {/if}
 
@@ -269,10 +334,5 @@
     }
     .grid :global(.selectElem:not(.isSelected):nth-child(even)) {
         background-color: var(--primary-darkest);
-    }
-    .grid span {
-        display: flex;
-        align-items: center;
-        gap: 5px;
     }
 </style>

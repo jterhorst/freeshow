@@ -1,13 +1,15 @@
 <script lang="ts">
     import { uid } from "uid"
-    import { activeStyle, dictionary, imageExtensions, outputs, styles, templates } from "../../../stores"
+    import { activePopup, activeStyle, dictionary, imageExtensions, outputs, popupData, styles, templates, videoExtensions } from "../../../stores"
     import { mediaFitOptions } from "../../edit/values/boxes"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
-    import { clone } from "../../helpers/array"
+    import { clone, removeDuplicates, sortByName } from "../../helpers/array"
     import { history } from "../../helpers/history"
     import { getFileName } from "../../helpers/media"
+    import { defaultLayers } from "../../helpers/output"
     import Button from "../../inputs/Button.svelte"
+    import Checkbox from "../../inputs/Checkbox.svelte"
     import Color from "../../inputs/Color.svelte"
     import CombinedInput from "../../inputs/CombinedInput.svelte"
     import Dropdown from "../../inputs/Dropdown.svelte"
@@ -22,16 +24,19 @@
 
         if (!currentId) currentId = styleId || "default"
 
-        // TODO: history
+        // create a style if nothing exists
         styles.update((a) => {
             if (!a[currentId]) a[currentId] = clone(currentStyle)
-            a[currentId][key] = value
 
             return a
         })
 
+        history({ id: "UPDATE", newData: { key, data: value }, oldData: { id: currentId }, location: { page: "settings", id: "settings_style", override: "style_" + key } })
+
         styleId = currentId
     }
+
+    const isChecked = (e: any) => e.target.checked
 
     function updateCropping(newValue: number, key: string) {
         let cropping = currentStyle.cropping || { top: 0, right: 0, bottom: 0, left: 0 }
@@ -68,7 +73,7 @@
             return { ...obj, id }
         })
 
-        return list.sort((a, b) => a.name.localeCompare(b.name))
+        return sortByName(list)
     }
 
     // set id after deletion
@@ -100,7 +105,7 @@
     let activeLayers: any[] = []
     $: {
         if (currentStyle.layers) activeLayers = currentStyle.layers
-        else activeLayers = ["background", "slide", "overlays"]
+        else activeLayers = clone(defaultLayers)
     }
 
     // overlays
@@ -114,12 +119,7 @@
     ]
 
     let templateList: any[] = []
-    $: templateList = [
-        { id: null, name: "—" },
-        ...Object.entries($templates)
-            .map(([id, template]: any) => ({ id, name: template.name }))
-            .sort((a, b) => a.name.localeCompare(b.name)),
-    ]
+    $: templateList = [{ id: null, name: "—" }, ...sortByName(Object.entries($templates).map(([id, template]: any) => ({ id, name: template.name })))]
 
     // text divider
     function keydown(e: any) {
@@ -146,10 +146,11 @@
     </span>
 </CombinedInput>
 <CombinedInput>
-    <p><T id="edit.background_image" /></p>
+    <p><T id="edit.background_media" /></p>
     <MediaPicker
+        id="styles"
         title={currentStyle.backgroundImage}
-        filter={{ name: "Image files", extensions: $imageExtensions }}
+        filter={{ name: "Media files", extensions: [...$imageExtensions, $videoExtensions] }}
         on:picked={(e) => {
             if (e.detail) updateStyle(e, "backgroundImage")
         }}
@@ -173,6 +174,14 @@
         </Button>
     {/if}
 </CombinedInput>
+{#if currentStyle.backgroundImage && (currentStyle.clearStyleBackgroundOnText || activeLayers.includes("slide"))}
+    <CombinedInput>
+        <p><T id="settings.clear_style_background_on_text" /></p>
+        <div class="alignRight">
+            <Checkbox checked={currentStyle.clearStyleBackgroundOnText} on:change={(e) => updateStyle(isChecked(e), "clearStyleBackgroundOnText")} />
+        </div>
+    </CombinedInput>
+{/if}
 <CombinedInput>
     <p><T id="edit.media_fit" /></p>
     <Dropdown value={mediaFitOptions.find((a) => a.id === currentStyle.fit)?.name || "—"} options={[{ id: null, name: "—" }, ...mediaFitOptions]} on:click={(e) => updateStyle(e.detail.id, "fit")} />
@@ -223,20 +232,41 @@
     </span>
 </CombinedInput>
 
-<h3><T id="preview.slide" /></h3>
 <CombinedInput>
-    <p><T id="settings.lines" /></p>
-    <NumberInput
-        value={currentStyle.lines || 0}
-        min={0}
-        max={99}
-        buttons={false}
-        outline
-        on:change={(e) => {
-            updateStyle(e, "lines")
+    <p><T id="popup.transition" /></p>
+    <Button
+        on:click={() => {
+            if (!$styles[styleId]) updateStyle("", "transition") // set initial style
+            popupData.set({ action: "style_transition", id: styleId })
+            activePopup.set("transition")
         }}
-    />
+        center
+    >
+        <div style="display: flex;align-items: center;padding: 0;">
+            <Icon id="transition" right />
+            <p style="padding: 0;">
+                {#if currentStyle.transition}
+                    <T id="actions.change_transition" />
+                {:else}
+                    <T id="popup.transition" />
+                {/if}
+            </p>
+        </div>
+    </Button>
+    {#if currentStyle.transition}
+        <Button
+            title={$dictionary.remove?.transition}
+            on:click={() => {
+                updateStyle("", "transition")
+            }}
+            redHover
+        >
+            <Icon id="close" size={1.2} white />
+        </Button>
+    {/if}
 </CombinedInput>
+
+<h3><T id="preview.slide" /></h3>
 <CombinedInput>
     <p><T id="settings.active_layers" /></p>
     <span class="flex">
@@ -244,7 +274,7 @@
         <Button
             on:click={() => {
                 if (activeLayers.includes("background")) activeLayers.splice(activeLayers.indexOf("background"), 1)
-                else activeLayers = [...new Set([...activeLayers, "background"])]
+                else activeLayers = removeDuplicates([...activeLayers, "background"])
                 updateStyle(activeLayers, "layers")
             }}
             style={activeLayers.includes("background") ? "border-bottom: 2px solid var(--secondary) !important;" : "border-bottom: 2px solid var(--primary-lighter);"}
@@ -259,7 +289,7 @@
         <Button
             on:click={() => {
                 if (activeLayers.includes("slide")) activeLayers.splice(activeLayers.indexOf("slide"), 1)
-                else activeLayers = [...new Set([...activeLayers, "slide"])]
+                else activeLayers = removeDuplicates([...activeLayers, "slide"])
                 updateStyle(activeLayers, "layers")
             }}
             style={activeLayers.includes("slide") ? "border-bottom: 2px solid var(--secondary) !important;" : "border-bottom: 2px solid var(--primary-lighter);"}
@@ -274,7 +304,7 @@
         <Button
             on:click={() => {
                 if (activeLayers.includes("overlays")) activeLayers.splice(activeLayers.indexOf("overlays"), 1)
-                else activeLayers = [...new Set([...activeLayers, "overlays"])]
+                else activeLayers = removeDuplicates([...activeLayers, "overlays"])
                 updateStyle(activeLayers, "layers")
             }}
             style={activeLayers.includes("overlays") ? "border-bottom: 2px solid var(--secondary) !important;" : "border-bottom: 2px solid var(--primary-lighter);"}
@@ -290,8 +320,24 @@
 <!-- WIP toggle meta -->
 
 <CombinedInput>
+    <p><T id="settings.lines" /></p>
+    <NumberInput
+        value={currentStyle.lines || 0}
+        min={0}
+        max={99}
+        on:change={(e) => {
+            updateStyle(e, "lines")
+        }}
+    />
+</CombinedInput>
+
+<CombinedInput>
     <p><T id="settings.override_with_template" /></p>
     <Dropdown options={templateList} value={$templates[currentStyle.template || ""]?.name || "—"} on:click={(e) => updateStyle(e.detail.id, "template")} />
+</CombinedInput>
+<CombinedInput>
+    <p><T id="settings.override_scripture_with_template" /></p>
+    <Dropdown options={templateList} value={$templates[currentStyle.templateScripture || ""]?.name || "—"} on:click={(e) => updateStyle(e.detail.id, "templateScripture")} />
 </CombinedInput>
 
 <!-- meta -->

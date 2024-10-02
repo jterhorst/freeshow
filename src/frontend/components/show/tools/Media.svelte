@@ -1,16 +1,17 @@
 <script lang="ts">
-    import { OUTPUT } from "../../../../types/Channels"
-    import { activeShow, dictionary, driveData, media, midiIn, outLocked, outputs, playingAudio, showsCache } from "../../../stores"
-    import { playMidiIn } from "../../../utils/midi"
-    import { send } from "../../../utils/request"
+    import { MAIN, OUTPUT } from "../../../../types/Channels"
+    import { activeShow, dictionary, driveData, media, outLocked, outputs, playingAudio, showsCache } from "../../../stores"
+    import { destroy, receive, send } from "../../../utils/request"
+    import { actionData } from "../../actions/actionData"
+    import { runAction } from "../../actions/actions"
     import MediaLoader from "../../drawer/media/MediaLoader.svelte"
-    import { clearAudioStreams, playAudio, startMicrophone } from "../../helpers/audio"
     import Icon from "../../helpers/Icon.svelte"
-    import { getExtension, getMediaType } from "../../helpers/media"
-    import { findMatchingOut, setOutput } from "../../helpers/output"
-    import { getMediaFilter, sendMidi } from "../../helpers/showActions"
-    import { _show } from "../../helpers/shows"
     import T from "../../helpers/T.svelte"
+    import { sortByName } from "../../helpers/array"
+    import { clearAudioStreams, playAudio, startMicrophone } from "../../helpers/audio"
+    import { getExtension, getMediaStyle, getMediaType, isMediaExtension, loadThumbnail, mediaSize } from "../../helpers/media"
+    import { findMatchingOut, getActiveOutputs, setOutput } from "../../helpers/output"
+    import { _show } from "../../helpers/shows"
     import Button from "../../inputs/Button.svelte"
     import HoverButton from "../../inputs/HoverButton.svelte"
     import Center from "../../system/Center.svelte"
@@ -18,15 +19,19 @@
 
     $: show = $showsCache[$activeShow!.id]
 
+    $: outputId = getActiveOutputs($outputs, true, true, true)[0]
+
     let layoutBackgrounds: any[] = []
     let layoutAudio: any[] = []
     let layoutMics: any[] = []
+    let layoutActions: any[] = []
 
     $: {
         if (show) {
             layoutBackgrounds = []
             layoutAudio = []
             layoutMics = []
+            layoutActions = []
 
             let refs = _show("active").layouts().ref()
             refs.forEach((slides: any) => {
@@ -43,6 +48,12 @@
                         .filter((a: any) => a !== undefined)
                         .flat()
                 )
+                layoutActions.push(
+                    ...slides
+                        .map((a: any) => a.data.actions?.slideActions)
+                        .filter((a: any) => a !== undefined)
+                        .flat()
+                )
             })
         }
     }
@@ -54,8 +65,8 @@
         backgrounds = {}
         bgs = []
         layoutBackgrounds.forEach((a: any) => {
-            if (!show.media[a]) return
-            let path = show.media[a].path || show.media[a].id!
+            if (!show.media?.[a]) return
+            let path: string = show.media[a].path || show.media[a].id || ""
             let cloudId = $driveData.mediaId
             if (cloudId && cloudId !== "default") path = show.media[a].cloud?.[cloudId] || path
 
@@ -66,6 +77,7 @@
             else backgrounds[path] = { id: a, ...show.media[a], path, type, count: 1 }
         })
         Object.values(backgrounds).forEach((a) => bgs.push(a))
+        bgs = sortByName(bgs)
     } else bgs = []
 
     let audio: any = []
@@ -108,36 +120,52 @@
         })
     }
 
-    let midi: any[] = []
-    $: showMidi = show?.midi || {}
-    // $activePopup !== "midi" &&
-    $: if (Object.keys(showMidi).length || Object.keys($midiIn).length) {
-        midi = []
-        Object.entries(showMidi).forEach(([id, value]: any) => {
-            midi.push({ id, ...value })
-        })
-        Object.entries($midiIn).forEach(([id, value]: any) => {
-            if (value.shows.find((a) => a.id === $activeShow!.id)) {
-                midi.push({ id, ...value, type: "in" })
-            }
-        })
-    } else if (!Object.keys(showMidi).length) midi = []
+    let actions: any[] = []
+    $: if (layoutActions.length) {
+        actions = []
+        layoutActions.forEach((action) => {
+            // check if another exact exists
+            if (actions.find((a) => JSON.stringify(a) === JSON.stringify(action))) return
 
-    // TODO: check if file exists!!!
+            actions.push(action)
+        })
+    } else actions = []
+
+    let simularBgs: any[] = []
+    $: if (bgs.length) getSimularPaths()
+    function getSimularPaths() {
+        send(MAIN, ["GET_SIMULAR"], { paths: bgs.map((a) => a.path) })
+
+        let listenerId = "media_simular"
+        destroy(MAIN, listenerId)
+        receive(MAIN, { GET_SIMULAR: (a) => receiveSimular(a) }, listenerId)
+        function receiveSimular(data: any[]) {
+            simularBgs = data.filter((a) => isMediaExtension(getExtension(a.path))).slice(0, 3)
+            destroy(MAIN, listenerId)
+        }
+    }
+
+    let newPaths: any = {}
+    $: if (bgs) loadBackgrounds()
+    function loadBackgrounds() {
+        bgs.forEach(async (background) => {
+            let newBgPath = await loadThumbnail(background.path, mediaSize.small)
+
+            if (newBgPath) newPaths[background.path] = newBgPath
+            else newPaths[background.path] = background.path
+        })
+    }
 </script>
 
-<!-- TODO: transition type & duration -->
-
 <div class="main">
-    {#if bgs.length || audio.length || mics.length || midi.length}
+    {#if bgs.length || audio.length || mics.length || actions.length}
         {#if bgs.length}
             <!-- <h5><T id="tools.media" /></h5> -->
             {#each bgs as background}
                 <!-- TODO: cameras -->
-                {@const filter = getMediaFilter(background.path)}
-                {@const flipped = $media[background.path]?.flipped || false}
-                {@const fit = $media[background.path]?.fit || "contain"}
-                {@const speed = $media[background.path]?.speed || "1"}
+                {@const mediaStyle = getMediaStyle($media[background.path], { name: "" })}
+                {@const bgPath = newPaths[background.path] || ""}
+
                 <SelectElem id="media" data={{ ...background }} draggable>
                     <div class="media_item item context #show_media" class:active={findMatchingOut(background.path, $outputs)}>
                         <HoverButton
@@ -146,21 +174,21 @@
                             size={3}
                             on:click={() => {
                                 if (!$outLocked) {
-                                    setOutput("background", { path: background.path, loop: background.loop !== false, muted: background.muted !== false, filter, flipped, fit, speed })
-                                    if (background.type === "video") send(OUTPUT, ["UPDATE_VIDEO"], { data: { duration: 0, paused: false, muted: background.muted !== false, loop: background.loop !== false } })
+                                    setOutput("background", { path: background.path, type: background.type, loop: background.loop !== false, muted: background.muted !== false, ...mediaStyle })
+                                    if (background.type === "video") send(OUTPUT, ["DATA"], { [outputId]: { duration: 0, paused: false, muted: background.muted !== false, loop: background.loop !== false } })
                                 }
                             }}
                             title={$dictionary.media?.play}
                         >
-                            <!-- <div style="flex: 2;height: 50px;"> -->
-                            <MediaLoader name={background.name} path={background.path} type={background.type} {filter} {flipped} {fit} {speed} />
-                            <!-- </div> -->
+                            <MediaLoader name={background.name} path={background.path} thumbnailPath={bgPath} type={background.type} {mediaStyle} />
                         </HoverButton>
-                        <!-- on:click={() => activeShow.set({ id: background.path, name: background.name, type: background.type })} -->
+
                         <p title={background.path}>{background.name}</p>
+
                         {#if background.count > 1}
                             <span style="color: var(--secondary);font-weight: bold;">{background.count}</span>
                         {/if}
+
                         {#if background.type === "video"}
                             <Button
                                 style="flex: 0;padding: 14px 5px;"
@@ -178,6 +206,35 @@
                     </div>
                 </SelectElem>
             {/each}
+
+            {#if simularBgs.length}
+                <h5><T id="media.recommended" /></h5>
+
+                {#each simularBgs as background}
+                    {@const mediaStyle = getMediaStyle($media[background.path], { name: "" })}
+                    {@const type = getMediaType(getExtension(background.path)) || "video"}
+
+                    <SelectElem id="media" data={{ ...background, type }} draggable>
+                        <div class="media_item item context #show_media" class:active={findMatchingOut(background.path, $outputs)}>
+                            <HoverButton
+                                style="flex: 2;height: 50px;max-width: 100px;"
+                                icon="play"
+                                size={3}
+                                on:click={() => {
+                                    if (!$outLocked) {
+                                        setOutput("background", { path: background.path, type, loop: true, muted: true, ...mediaStyle })
+                                        if (type === "video") send(OUTPUT, ["DATA"], { [outputId]: { duration: 0, paused: false, muted: true, loop: true } })
+                                    }
+                                }}
+                                title={$dictionary.media?.play}
+                            >
+                                <MediaLoader name={background.name} path={background.path} {type} {mediaStyle} />
+                            </HoverButton>
+                            <p title={background.path}>{background.name}</p>
+                        </div>
+                    </SelectElem>
+                {/each}
+            {/if}
         {/if}
 
         {#if audio.length}
@@ -231,13 +288,17 @@
             {/each}
         {/if}
 
-        {#if midi.length}
-            <h5><T id="popup.midi" /></h5>
-            {#each midi as midi}
-                <SelectElem id="midi" data={midi} draggable>
-                    <Button class="context #midi" on:click={() => (midi.type === "in" ? playMidiIn(midi) : sendMidi(midi))} style="padding: 8px;width: 100%;" title={midi.name} bold={false}>
-                        <Icon id={midi.type === "in" ? "play" : "music"} size={1.2} right />
-                        <p>{midi.name}</p>
+        {#if actions.length}
+            <h5><T id="tabs.actions" /></h5>
+            {#each actions as action}
+                {@const actionId = action.triggers?.[0] || ""}
+                {@const customData = actionData[actionId] || {}}
+
+                <SelectElem id="action" data={action} draggable>
+                    <!-- class="context #action" -->
+                    <Button on:click={() => runAction(action)} style="padding: 8px;width: 100%;" title={action.name} bold={false}>
+                        <Icon id={customData.icon || "actions"} size={1.2} right />
+                        <p><T id={customData.name || ""} /></p>
                     </Button>
                 </SelectElem>
             {/each}
@@ -285,6 +346,7 @@
     .item {
         display: flex;
         width: 100%;
+        /* don't think fit-content is necessary */
         height: fit-content;
         /* justify-content: center; */
         align-items: center;
@@ -319,7 +381,7 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-        z-index: -1;
+        z-index: 0;
         padding: 2px;
     }
     .main :global(video) {

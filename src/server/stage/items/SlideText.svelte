@@ -1,9 +1,17 @@
 <script lang="ts">
+    import Main from "../components/Main.svelte"
     import Textbox from "../components/Textbox.svelte"
+    import Zoomed from "../components/Zoomed.svelte"
+    import { getStyleResolution } from "../helpers/getStyleResolution"
     // import { getAutoSize } from "../helpers/autoSize"
 
     export let slide: any
     export let stageItem: any
+
+    // current slide zooming
+    export let show: any = {}
+    export let resolution: any = {}
+
     // export let parent: any
     export let chords: boolean = false
     export let autoSize: boolean = false
@@ -11,12 +19,13 @@
     export let fontSize: number = 0
 
     export let style: boolean = false
+    export let textStyle: string = ""
 
     // $: stageAutoSize = autoSize ? (slide ? getAutoSize(slide.items[0], parent) : 1) : fontSize
     // $: stageAutoSize = autoSize ? (getCustomAutoSize()) : fontSize
 
     $: reversedItems = JSON.parse(JSON.stringify(slide?.items || [])).reverse()
-    $: items = style ? reversedItems : combineSlideItems()
+    $: items = style ? slide?.items || [] : combineSlideItems()
 
     function combineSlideItems() {
         let oneItem: any = null
@@ -32,11 +41,22 @@
 
         return oneItem ? [oneItem] : []
     }
+
+    $: console.log(stageItem)
 </script>
 
 {#if slide}
-    {#each items as item}
-        <Textbox {item} {style} {chords} {stageItem} {autoSize} {fontSize} {autoStage} />
-        <!-- <Textbox {item} {style} {chords} autoSize={stageAutoSize} {fontSize} {autoStage} /> -->
-    {/each}
+    {#if style}
+        <Main let:width let:height>
+            <Zoomed {show} style={getStyleResolution(resolution, width, height, "fit")} center>
+                {#each items as item}
+                    <Textbox {item} {style} customStyle={textStyle} {chords} {stageItem} maxLines={Number(stageItem.lineCount)} autoSize={item.auto && autoSize} {fontSize} {autoStage} />
+                {/each}
+            </Zoomed>
+        </Main>
+    {:else}
+        {#each items as item}
+            <Textbox {item} {style} customStyle={textStyle} {chords} {stageItem} maxLines={Number(stageItem.lineCount)} {autoSize} {fontSize} {autoStage} />
+        {/each}
+    {/if}
 {/if}

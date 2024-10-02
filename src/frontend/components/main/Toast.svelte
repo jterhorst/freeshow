@@ -4,7 +4,7 @@
     import T from "../helpers/T.svelte"
 
     $: messages = $toastMessages
-    $: if (messages) startTimer()
+    $: if (messages?.length) startTimer()
 
     const toastDuration = 4000 // ms
     let currentTimer: any = null
@@ -22,8 +22,6 @@
     function removeCurrent() {
         toastMessages.update((a) => {
             a.shift()
-
-            if (a.length) startTimer()
             return a
         })
     }
@@ -32,7 +30,9 @@
 {#if messages[0]}
     <div class="toast" transition:slide>
         {#if messages[0][0] === "$"}
-            <T id={messages[0].slice(1)} />
+            {#key messages[0]}
+                <T id={messages[0].slice(1)} />
+            {/key}
         {:else}
             {messages[0]}
         {/if}
@@ -44,11 +44,11 @@
         position: absolute;
         bottom: 0;
         right: 0;
-        max-width: 300px;
+        max-width: var(--navigation-width);
         /* bottom: 80px;
         left: 50%;
         transform: translateX(-50%); */
-        z-index: 80;
+        z-index: 5000;
 
         background-color: var(--primary-darker);
         color: var(--text);

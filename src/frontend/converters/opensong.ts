@@ -32,7 +32,7 @@ export function convertOpenSong(data: any) {
     activePopup.set("alert")
     alertMessage.set("popup.importing")
 
-    createCategory("OpenSong")
+    let categoryId = createCategory("OpenSong")
 
     let tempShows: any[] = []
 
@@ -42,7 +42,7 @@ export function convertOpenSong(data: any) {
             console.log(song)
 
             let layoutID = uid()
-            let show = new ShowObj(false, "opensong", layoutID)
+            let show = new ShowObj(false, categoryId, layoutID)
             show.name = checkName(song.title)
             show.meta = {
                 title: show.name,
@@ -67,11 +67,12 @@ const OSgroups: any = { V: "verse", C: "chorus", B: "bridge", T: "tag", O: "outr
 function createSlides({ lyrics }: Song) {
     let slides: any = {}
     let layout: any[] = []
+    if (!lyrics) return { slides, layout }
     lyrics.forEach((slide) => {
         let lines = slide.split("\n")
         let group = lines.splice(0, 1)[0]
-        let chords = lines.filter((_v: string, i: number) => !(i % 2))
-        let text = lines.filter((_v: string, i: number) => i % 2)
+        let chords = lines.filter((_v: string) => _v.startsWith("."))
+        let text = lines.filter((_v: string) => !_v.startsWith("."))
         if (text) {
             let id: string = uid()
             layout.push({ id })
@@ -165,10 +166,9 @@ function XMLtoBible(xml: string): Bible {
             let number = chapter.getAttribute("n")
             let verses: any[] = []
             ;[...getChildren(chapter, "v")].forEach((verse: any) => {
-                // remove [1]
                 let value = verse.innerHTML
                     .toString()
-                    .replace(/ *\[[^\]]*]/g, "")
+                    .replace(/\[\d+\] /g, "") // remove [1], not [text]
                     .trim()
                 length += value.length
                 if (value.length) verses.push({ number: verse.getAttribute("n"), value })

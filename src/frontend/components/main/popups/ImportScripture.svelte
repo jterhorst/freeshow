@@ -2,18 +2,18 @@
     import { onMount } from "svelte"
     import { uid } from "uid"
     import { IMPORT } from "../../../../types/Channels"
-    import { activePopup, alertMessage, bibleApiKey, dictionary, language, os, scriptures } from "../../../stores"
+    import { activePopup, alertMessage, bibleApiKey, dictionary, isDev, language, os, scriptures } from "../../../stores"
     import { replace } from "../../../utils/languageData"
     import { send } from "../../../utils/request"
     import Icon from "../../helpers/Icon.svelte"
+    import { getKey } from "../../../values/keys"
     import T from "../../helpers/T.svelte"
     import Button from "../../inputs/Button.svelte"
     import TextInput from "../../inputs/TextInput.svelte"
     import Center from "../../system/Center.svelte"
     import Loader from "../Loader.svelte"
+    import { sortByName } from "../../helpers/array"
 
-    // API.Bible key. Will propably change in the future (Please don't abuse)
-    let key: string = "320b5b593fa790ced135a98861de51a9"
     let error: null | string = null
     let bibles: any[] = []
 
@@ -21,7 +21,7 @@
 
     async function fetchBibles() {
         // read cache
-        let cache = JSON.parse(localStorage.getItem("scriptureApiCache") || "{}")
+        let cache = $isDev ? {} : JSON.parse(localStorage.getItem("scriptureApiCache") || "{}")
         if (cache.date) {
             let cacheDate = new Date(cache.date).getTime()
             let today = new Date().getTime()
@@ -33,8 +33,9 @@
             }
         }
 
+        const KEY = $bibleApiKey || getKey("bibleapi")
         const api = "https://api.scripture.api.bible/v1/bibles"
-        fetch(api, { headers: { "api-key": key } })
+        fetch(api, { headers: { "api-key": KEY } })
             .then((response) => response.json())
             .then((data) => {
                 bibles = data.data
@@ -55,7 +56,7 @@
     $: {
         if (bibles?.length) {
             let langCode = window.navigator.language.slice(-2).toLowerCase()
-            sortedBibles = bibles.sort((a, b) => a.name.localeCompare(b.name))
+            sortedBibles = sortByName(bibles)
             let newSorted: any[] = []
             sortedBibles.forEach((bible) => {
                 newSorted.push(bible)
@@ -90,8 +91,9 @@
     }
 
     const formats: any = [
-        { name: "Zefania", extensions: ["xml"], id: "zefania" }, // OSIS
-        { name: "beblia.com", extensions: ["xml"], id: "beblia" },
+        { name: "Zefania", extensions: ["xml"], id: "zefania" },
+        { name: "OSIS", extensions: ["xml"], icon: "zefania", id: "osis" },
+        { name: "Beblia", extensions: ["xml"], id: "beblia" },
         { name: "OpenSong", extensions: ["xml", "xmm"], id: "opensong" },
         { name: "FreeShow", extensions: ["fsb", "json"], id: "freeshow" },
     ]
@@ -119,45 +121,43 @@
         <h2>
             <T id="scripture.bibles" />
         </h2>
-        {#if $bibleApiKey}
-            <TextInput style="width: 50%;" placeholder={$dictionary.main?.search} value="" on:input={search} />
-        {/if}
+
+        <TextInput style="width: 50%;" placeholder={$dictionary.main?.search} value="" on:input={search} />
     </div>
     <div class="list">
+        <!-- custom key input: -->
         <!-- <BibleApiKey /> -->
 
-        {#if $bibleApiKey}
-            {#if searchedRecommendedBibles.length}
-                {#each searchedRecommendedBibles as bible}
+        {#if searchedRecommendedBibles.length}
+            {#each searchedRecommendedBibles as bible}
+                <Button bold={false} on:click={() => toggleScripture(bible)} active={!!Object.values($scriptures).find((a) => a.id === bible.id)}>
+                    <Icon id="scripture_alt" right />{bible.nameLocal}
+                    {#if bible.description && bible.description.toLowerCase() !== "common" && !bible.nameLocal.includes(bible.description)}
+                        <span class="description" title={bible.description}>({bible.description})</span>
+                    {/if}
+                </Button>
+            {/each}
+            <hr />
+        {/if}
+        {#if sortedBibles.length}
+            {#if searchedBibles.length}
+                {#each searchedBibles as bible}
                     <Button bold={false} on:click={() => toggleScripture(bible)} active={!!Object.values($scriptures).find((a) => a.id === bible.id)}>
-                        <Icon id="noIcon" right />{bible.nameLocal}
-                        {#if bible.description && bible.description.toLowerCase() !== "common" && !bible.nameLocal.includes(bible.description)}
+                        <Icon id="scripture_alt" right />{bible.name}
+                        {#if bible.description && bible.description.toLowerCase() !== "common" && !bible.name.includes(bible.description)}
                             <span class="description" title={bible.description}>({bible.description})</span>
                         {/if}
                     </Button>
                 {/each}
-                <hr />
-            {/if}
-            {#if sortedBibles.length}
-                {#if searchedBibles.length}
-                    {#each searchedBibles as bible}
-                        <Button bold={false} on:click={() => toggleScripture(bible)} active={!!Object.values($scriptures).find((a) => a.id === bible.id)}>
-                            <Icon id="noIcon" right />{bible.name}
-                            {#if bible.description && bible.description.toLowerCase() !== "common" && !bible.name.includes(bible.description)}
-                                <span class="description" title={bible.description}>({bible.description})</span>
-                            {/if}
-                        </Button>
-                    {/each}
-                {:else}
-                    <Center faded>
-                        <T id="empty.search" />
-                    </Center>
-                {/if}
             {:else}
-                <Center>
-                    <Loader />
+                <Center faded>
+                    <T id="empty.search" />
                 </Center>
             {/if}
+        {:else}
+            <Center>
+                <Loader />
+            </Center>
         {/if}
     </div>
 {/if}
@@ -168,11 +168,10 @@
 
 <span style="display: flex;">
     {#each formats as format}
-        <!-- style="width: 20%;flex-direction: column;min-height: 160px;" -->
         <Button
-            style="width: 25%;flex-direction: column;min-height: 180px;"
+            style="width: 20%;flex-direction: column;min-height: 160px;"
             on:click={() => {
-                send(IMPORT, [format.id + "_bible"], format)
+                send(IMPORT, [format.id + "_bible"], { format })
 
                 // linux dialog behind window message
                 if ($os.platform === "linux") {
@@ -185,7 +184,7 @@
             bold={false}
             center
         >
-            <img src="./import-logos/{format.icon || format.id}.webp" alt="{format.id}-logo" />
+            <img src="./import-logos/{format.icon || format.id}.webp" alt="{format.id}-logo" draggable={false} />
             <p>{format.name}</p>
         </Button>
     {/each}

@@ -5,11 +5,10 @@
     import T from "../helpers/T.svelte"
     import Button from "../inputs/Button.svelte"
 
-    const tools: DrawTools[] = ["focus", "pointer", "particles", "fill", "paint"]
-    // TODO: zoom tool
+    const tools: DrawTools[] = ["focus", "pointer", "zoom", "particles", "fill", "paint"]
 
     function keydown(e: any) {
-        if (e.ctrlKey || e.metaKey) return
+        if (e.target?.closest(".edit") || e.ctrlKey || e.metaKey) return
 
         let nextTab = -1
         let currentTabIndex = tools.findIndex((tab) => tab === $drawTool)
@@ -44,5 +43,9 @@
 
     .main :global(button:nth-child(even)) {
         background-color: rgb(0 0 20 / 0.08);
+    }
+
+    .main :global(button.active) {
+        background-color: var(--primary-darker);
     }
 </style>

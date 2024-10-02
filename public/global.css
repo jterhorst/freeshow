@@ -19,6 +19,13 @@
     font-style: italic;
 }
 
+/* flag emojies */
+@font-face {
+    font-family: NotoColorEmojiLimited;
+    unicode-range: U+1F1E6-1F1FF;
+    src: url("https://raw.githack.com/googlefonts/noto-emoji/main/fonts/NotoColorEmoji.ttf");
+}
+
 :root {
     --primary: #292c36;
     --primary-lighter: #363945;
@@ -40,8 +47,10 @@
     --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
     --font-size: 1em;
 
+    --border-radius: 0;
+
     /* --navigation-width: 18vw; */
-    --navigation-width: 300px;
+    --navigation-width: 290px;
 }
 
 html,
@@ -67,8 +76,8 @@ body {
 
 /* scroll bar */
 ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track,
@@ -101,6 +110,11 @@ h6 {
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
+    font-weight: 600;
+}
+
+h1 {
+    font-weight: bold;
 }
 
 p {

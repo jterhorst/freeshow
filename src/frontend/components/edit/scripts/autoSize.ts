@@ -1,50 +1,6 @@
-import { GetLayout } from "../../helpers/get"
-import { get } from "svelte/store"
-import { activeEdit, activeShow } from "../../../stores"
-import { _show } from "../../helpers/shows"
+import type { Item } from "../../../../types/Show"
 import { getStyles } from "../../helpers/style"
-import { addStyleString, getItemLines, getItemText } from "./textStyle"
-
-// TODO: deprecated function
-export function autoSize(items: number[], fullItems: any[], check: boolean = true) {
-    let values: any[] = []
-    fullItems.forEach((item, i) => {
-        if (!check || item.auto) {
-            let styles: any = getStyles(item.style)
-
-            let lines = getItemLines(item)
-            let length = lines.sort((a, b) => b.length - a.length)[0].length
-            // console.log(lines)
-            let size: any
-            // TODO: letter spacing....?
-            if (styles.height.replace(/\D.+/g, "") / lines.length / styles.width.replace(/\D.+/g, "") > 1.8 / length) {
-                size = (styles.width.replace(/\D.+/g, "") / length) * 1.4
-            } else {
-                size = (styles.height.replace(/\D.+/g, "") / lines.length) * 0.8
-            }
-            values.push([])
-            item.lines?.forEach((line: any) => {
-                if (!values[i]) return
-
-                values[i].push(
-                    line.text?.map((a: any) => {
-                        a.style = addStyleString(a.style, ["font-size", size + "px"])
-                        return a
-                    })
-                )
-            })
-        }
-    })
-
-    let layout = GetLayout()[get(activeEdit).slide!]
-    if (!values.length || !layout?.id) return
-
-    _show([get(activeShow)!.id])
-        .slides([layout.id])
-        .items(items)
-        .lines()
-        .set({ key: "text", values: values })
-}
+import { getItemLines, getItemText } from "./textStyle"
 
 // TODO: check line length
 export function getAutoSize(item: any, styles: any = null, oneLine: boolean = false): number {
@@ -59,6 +15,7 @@ export function getAutoSize(item: any, styles: any = null, oneLine: boolean = fa
     let itemWidth = styles.width
 
     let fullTextLength = getItemText(item).length
+    // TODO: this is not much in use:
     if (!oneLine && fullTextLength > 10) {
         // dont ask me how this works
 
@@ -93,20 +50,59 @@ export function getAutoSize(item: any, styles: any = null, oneLine: boolean = fa
     return size
 }
 
-const MAX_FONT_SIZE = 500
-const MIN_FONT_SIZE = 10
-export function getMaxBoxTextSize(elem: any, parentElem: HTMLElement) {
+export const MAX_FONT_SIZE = 800
+export const MIN_FONT_SIZE = 10
+export function getMaxBoxTextSize(elem: any, parentElem: HTMLElement, item: Item | null = null) {
+    let maxFontSize = MAX_FONT_SIZE
+    let minFontSize = MIN_FONT_SIZE
+
     let invisibleBox = elem.cloneNode(true)
     invisibleBox.classList.add("invisible")
     parentElem.append(invisibleBox)
 
-    let fontSize = MAX_FONT_SIZE
+    let type = item?.textFit || "shrinkToFit"
+    // shrinkToFit: text is set font size by default, but can shrink if the text does not fit in the textbox
+    // growToFit: text will grow to fill the entire textbox, but maximum the set font size
+
+    const itemText = item?.lines?.[0]?.text?.filter((a) => a.customType !== "disableTemplate") || []
+    let itemFontSize = Number(getStyles(itemText[0]?.style, true)?.["font-size"] || "") || 100
+    if (type === "shrinkToFit") {
+        let textIsBiggerThanBox = invisibleBox.scrollHeight > invisibleBox.offsetHeight || invisibleBox.scrollWidth > invisibleBox.offsetWidth
+        if (textIsBiggerThanBox) {
+            // change type if text is bigger than box
+            type = "growToFit"
+        } else {
+            // don't change the font size
+            return itemFontSize
+        }
+    }
+    if (type === "growToFit") {
+        // set max font size to the current set text font size
+        maxFontSize = itemFontSize
+    }
+
+    let fontSize = maxFontSize
     addStyleToElemText(fontSize)
 
-    while (fontSize > MIN_FONT_SIZE && (invisibleBox.scrollHeight > invisibleBox.offsetHeight || invisibleBox.scrollWidth > invisibleBox.offsetWidth)) {
-        fontSize--
+    // quick search (double divide)
+    let lowestValue = minFontSize
+    let highestValue = maxFontSize
+    let biggerThanSize = true
+    while (highestValue - lowestValue > 3) {
+        let difference = (highestValue - lowestValue) / 2
+        if (biggerThanSize) {
+            highestValue = fontSize
+            fontSize -= difference
+        } else {
+            lowestValue = fontSize
+            fontSize += difference
+        }
+
         addStyleToElemText(fontSize)
+        biggerThanSize = invisibleBox.scrollHeight > invisibleBox.offsetHeight || invisibleBox.scrollWidth > invisibleBox.offsetWidth
     }
+    fontSize = lowestValue // prefer lowest value
+    if (fontSize > maxFontSize) fontSize = maxFontSize
 
     function addStyleToElemText(fontSize) {
         for (let breakElem of invisibleBox.children) {

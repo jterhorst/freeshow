@@ -1,9 +1,10 @@
 <script lang="ts">
     import { onMount } from "svelte"
-    import { dictionary, fullColors, groupNumbers, groups } from "../../../stores"
+    import { dictionary, fullColors, groupNumbers, groups, special, templates } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
-    import { clone } from "../../helpers/array"
+    import { clone, sortByName } from "../../helpers/array"
+    import { getList } from "../../../utils/common"
     import { history } from "../../helpers/history"
     import Button from "../../inputs/Button.svelte"
     import Checkbox from "../../inputs/Checkbox.svelte"
@@ -12,28 +13,34 @@
     import Dropdown from "../../inputs/Dropdown.svelte"
     import TextInput from "../../inputs/TextInput.svelte"
 
-    $: g = Object.entries($groups)
-        .map(([id, a]: any) => ({ id, ...a, name: a.default ? $dictionary.groups?.[a.name] || a.name : a.name }))
-        .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    $: g = sortByName(Object.entries($groups).map(([id, a]: any) => ({ ...a, id, name: a.default ? $dictionary.groups?.[a.name] || a.name : a.name })))
 
     function changeGroup(e: any, id: string, key: string = "name") {
-        // TODO: history
-        groups.update((a) => {
-            if (key === "name" && a[id].default) delete a[id].default
+        // remove default tag if name is changed (used for translation)
+        // WIP undo won't work here...
+        if (key === "name" && $groups[id].default) {
+            groups.update((a) => {
+                delete a[id].default
 
-            let value = e.target?.value || e
-            if (key === "shortcut") value = e.detail.name
-            if (value === "—") value = ""
+                return a
+            })
+        }
 
-            a[id][key] = value
+        let value = e?.target?.value || e
+        if (key === "shortcut") value = e.detail.name
+        if (value === "—") value = ""
 
-            return a
-        })
+        history({ id: "UPDATE", newData: { key, data: value }, oldData: { id: id }, location: { page: "settings", id: "global_group", override: "group_" + key } })
     }
 
     const inputs: any = {
         colors: (e: any) => fullColors.set(e.target.checked),
         groupNumber: (e: any) => groupNumbers.set(e.target.checked),
+        numberKeys: (e: any) =>
+            special.update((a) => {
+                a.numberKeys = e.target.checked
+                return a
+            }),
     }
 
     const defaultGroups: any = {
@@ -67,6 +74,10 @@
         history({ id: "UPDATE", newData: { data: { name: value.group, color: value.groupColor } }, location: { page: "settings", id: "global_group" } })
         // value.group = ""
     }
+
+    let templateList: any[] = []
+    $: console.log($templates, templateList)
+    $: templateList = getList($templates, true)
 </script>
 
 <CombinedInput>
@@ -81,20 +92,39 @@
         <Checkbox checked={$fullColors} on:change={inputs.colors} />
     </div>
 </CombinedInput>
+<CombinedInput>
+    <p><T id="settings.slide_number_keys" /></p>
+    <div class="alignRight">
+        <Checkbox checked={$special.numberKeys} on:change={inputs.numberKeys} />
+    </div>
+</CombinedInput>
 
 <h3><T id="groups.global" /></h3>
 
-{#each g as group}
+{#each g as group, i}
+    {#if i === 0}
+        <div class="titles">
+            <p style="width: 35%;"><T id="inputs.name" /></p>
+            <p style="width: 15%;"><T id="edit.color" /></p>
+            <p style="width: 20%;"><T id="groups.group_shortcut" /></p>
+            <p style="width: 25%;"><T id="groups.group_template" /></p>
+            <!-- <p></p> -->
+        </div>
+    {/if}
+
     <CombinedInput>
-        <TextInput style="flex: 3;" value={group.name} on:change={(e) => changeGroup(e, group.id)} />
-        <!-- {#if group.default}
-              <T id="groups.{group.name}" />
-            {:else}
-              {group.name}
-            {/if} -->
-        <Color value={group.color} on:input={(e) => changeGroup(e.detail, group.id, "color")} />
+        <!-- name -->
+        <TextInput style="width: 35%;" value={group.name} on:change={(e) => changeGroup(e, group.id)} />
+        <!-- color -->
+        <Color style="width: 15%;" value={group.color} on:input={(e) => changeGroup(e.detail, group.id, "color")} />
         <!-- shortcut -->
-        <Dropdown title={$dictionary.settings?.group_shortcut} style="flex: 0.5;" value={group.shortcut || "—"} options={shortcuts} on:click={(e) => changeGroup(e, group.id, "shortcut")} center />
+        <span style="width: 20%;">
+            <Dropdown title={$dictionary.settings?.group_shortcut} value={group.shortcut || "—"} options={shortcuts} on:click={(e) => changeGroup(e, group.id, "shortcut")} center />
+        </span>
+        <!-- template -->
+        <span style="width: 25%;">
+            <Dropdown title={$dictionary.groups?.group_template} value={templateList.find((a) => a.id === group.template)?.name || "—"} options={templateList} on:click={(e) => changeGroup(e.detail.id, group.id, "template")} center />
+        </span>
         <Button
             on:click={() => {
                 history({ id: "UPDATE", newData: { id: group.id }, location: { page: "settings", id: "global_group" } })
@@ -149,5 +179,17 @@
 
         display: flex;
         flex-direction: column;
+    }
+
+    .titles {
+        background: var(--hover);
+        display: flex;
+        padding: 8px 0;
+        font-weight: 600;
+        font-size: 0.9em;
+    }
+
+    .titles p {
+        text-align: center;
     }
 </style>

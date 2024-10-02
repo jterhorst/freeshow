@@ -1,7 +1,8 @@
 <script lang="ts">
-    import { OPEN_FILE } from "../../../../types/Channels"
+    import { MAIN } from "../../../../types/Channels"
     import { activePopup, driveData, driveKeys } from "../../../stores"
-    import { driveConnect, syncDrive } from "../../../utils/drive"
+    import { syncDrive } from "../../../utils/drive"
+    import { send } from "../../../utils/request"
     import { save } from "../../../utils/save"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
@@ -13,7 +14,7 @@
 
     function getKeysFile() {
         activePopup.set("cloud_update")
-        window.api.send(OPEN_FILE, { channel: "GOOGLE_KEYS", title: "Select keys file", filter: { name: "JSON", extensions: ["json"] }, multiple: false, read: true })
+        send(MAIN, ["OPEN_FILE"], { channel: "GOOGLE_KEYS", id: "keys", title: "Select keys file", filter: { name: "JSON", extensions: ["json"] }, multiple: false, read: true })
     }
 
     $: validKeys = typeof $driveKeys === "object" && Object.keys($driveKeys).length
@@ -103,8 +104,7 @@
         <Button
             on:click={() => {
                 save()
-                // syncDrive is called by save, but only if it's enabled
-                if ($driveData.disabled) setTimeout(() => syncDrive(true), 2000)
+                setTimeout(() => syncDrive(true), 2000)
             }}
             disabled={!validKeys}
             style="width: 100%;"
@@ -114,12 +114,13 @@
             <T id="cloud.sync" />
         </Button>
     </CombinedInput>
-    <CombinedInput>
+    <!-- Probably never used: -->
+    <!-- <CombinedInput>
         <Button on:click={() => driveConnect($driveKeys)} disabled={!validKeys} style="width: 100%;" center>
             <Icon id="refresh" right />
             <T id="cloud.reconnect" />
         </Button>
-    </CombinedInput>
+    </CombinedInput> -->
 {:else}
     <br />
     <span class="guide">

@@ -3,13 +3,14 @@
     import type { Bible } from "../../../../types/Scripture"
     import type { Item, Show } from "../../../../types/Show"
     import { ShowObj } from "../../../classes/Show"
-    import { activeProject, categories, drawerTabsData, outLocked, playScripture, scriptureSettings, templates } from "../../../stores"
-    import { getAutoSize } from "../../edit/scripts/autoSize"
+    import { activeProject, activeTriggerFunction, categories, drawerTabsData, media, outLocked, outputs, playScripture, scriptureHistory, scriptureSettings, styles, templates } from "../../../stores"
+    import { customActionActivation } from "../../actions/actions"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
-    import { clone } from "../../helpers/array"
+    import { removeDuplicates, sortByName } from "../../helpers/array"
     import { history } from "../../helpers/history"
-    import { setOutput } from "../../helpers/output"
+    import { getMediaStyle } from "../../helpers/media"
+    import { getActiveOutputs, setOutput } from "../../helpers/output"
     import { checkName } from "../../helpers/show"
     import Button from "../../inputs/Button.svelte"
     import Checkbox from "../../inputs/Checkbox.svelte"
@@ -17,10 +18,11 @@
     import CombinedInput from "../../inputs/CombinedInput.svelte"
     import Dropdown from "../../inputs/Dropdown.svelte"
     import NumberInput from "../../inputs/NumberInput.svelte"
+    import Media from "../../output/layers/Media.svelte"
     import Notes from "../../show/tools/Notes.svelte"
     import Textbox from "../../slide/Textbox.svelte"
     import Zoomed from "../../slide/Zoomed.svelte"
-    import { joinRange } from "../bible/scripture"
+    import { getShortBibleName, getSlides, joinRange, textKeys } from "../bible/scripture"
 
     export let bibles: Bible[]
     $: sorted = bibles[0]?.activeVerses?.sort((a, b) => Number(a) - Number(b)) || []
@@ -31,17 +33,11 @@
         else verseRange = ""
     }
 
-    // settings
-    // let verseNumbers: boolean = false
-    // let versesPerSlide: number = 3
-    // let showVersion: boolean = false
-    // let showVerse: boolean = true
-    // let redJesus: boolean = false // red jesus words
-
     let slides: Item[][] = [[]]
-    // let slides: any = {}
-    // let values: any[][] = []
-    // let itemStyle = "top: 150px;left: 50px;width: " + (resolution.width - 100) + "px;height: " + (resolution.height - 300) + "px;"
+
+    // background
+    $: template = $templates[$scriptureSettings.template] || {}
+    $: templateBackground = template.settings?.backgroundPath
 
     $: if ($drawerTabsData) setTimeout(checkTemplate, 100)
     function checkTemplate() {
@@ -54,131 +50,12 @@
         })
     }
 
-    $: template = $templates[$scriptureSettings.template]?.items || []
     $: {
-        if (sorted.length || $scriptureSettings) getSlides()
+        if (sorted.length || $scriptureSettings) slides = getSlides({ bibles, sorted })
         else slides = [[]]
     }
-    function getSlides() {
-        slides = [[]]
 
-        let templateTextItems = template.filter((a) => a.lines)
-        let templateOtherItems = template.filter((a) => !a.lines && a.type !== "text")
-
-        bibles.forEach((bible, bibleIndex) => {
-            let currentTemplate = templateTextItems[bibleIndex] || templateTextItems[0]
-            let itemStyle = currentTemplate?.style || "top: 150px;left: 50px;width: 1820px;height: 780px;"
-            let alignStyle = currentTemplate?.lines?.[0]?.align || "text-align: left;"
-            let textStyle = currentTemplate?.lines?.[0]?.text?.[0]?.style || "font-size: 80px;"
-
-            let emptyItem = { lines: [{ text: [], align: alignStyle }], style: itemStyle, specialStyle: currentTemplate?.specialStyle || {} }
-
-            let slideIndex: number = 0
-            slides[slideIndex].push(clone(emptyItem))
-
-            sorted.forEach((s: any, i: number) => {
-                let slideArr = slides[slideIndex][bibleIndex]
-
-                if ($scriptureSettings.verseNumbers) {
-                    let size = 50
-                    if (i === 0) size *= 2
-                    let verseNumberStyle = "font-size: " + size + "px;color: " + ($scriptureSettings.numberColor || "#919191") + ";" + templateTextItems[bibleIndex]?.lines?.[0].text?.[0].style || ""
-
-                    slideArr.lines![0].text.push({
-                        value: s + " ",
-                        style: verseNumberStyle,
-                    })
-                }
-
-                let text: string = bible.verses[s] || ""
-                // TODO: formatting (already function in Scripture.svelte)
-                // if (redJesus) {
-                //   text = text
-                // } else
-                text = text.replace(/(<([^>]+)>)/gi, "")
-                if (text.charAt(text.length - 1) !== " ") text += " "
-
-                slideArr.lines![0].text.push({ value: text, style: textStyle })
-
-                // if (bibleIndex + 1 < bibles.length) return
-                if ((i + 1) % $scriptureSettings.versesPerSlide > 0) return
-
-                if (bibleIndex + 1 >= bibles.length) {
-                    let range: any[] = sorted.slice(i - $scriptureSettings.versesPerSlide + 1, i + 1)
-                    addMeta($scriptureSettings, joinRange(range), { slideIndex, itemIndex: bibles.length })
-                }
-
-                if (i + 1 >= sorted.length) return
-
-                slideIndex++
-                if (!slides[slideIndex]) slides.push([clone(emptyItem)])
-                else slides[slideIndex].push(clone(emptyItem))
-            })
-
-            // auto size
-            slides.forEach((slide, i) => {
-                slide.forEach((item, j) => {
-                    if (!template[j]?.auto) return
-                    let autoSize: number = getAutoSize(item)
-                    slides[i][j].lines![0].text.forEach((_, k) => {
-                        slides[i][j].lines![0].text[k].style += "font-size: " + autoSize + "px;"
-                    })
-                })
-            })
-
-            if (bibleIndex + 1 < bibles.length) return
-            let remainder = sorted.length % $scriptureSettings.versesPerSlide
-            let range: any[] = sorted.slice(sorted.length - remainder, sorted.length)
-            if (remainder) addMeta($scriptureSettings, joinRange(range), { slideIndex, itemIndex: bibles.length })
-        })
-
-        // add other items
-        slides.forEach((items, i) => {
-            slides[i] = [...templateOtherItems, ...items]
-        })
-    }
-
-    function addMeta({ showVersion, showVerse, customText }, range: string, { slideIndex, itemIndex }) {
-        if (!bibles[0]) return
-
-        let lines: any[] = []
-
-        let metaTemplate = template[itemIndex] || template[0]
-        let verseStyle = metaTemplate?.lines?.[0]?.text?.[0]?.style || "font-size: 50px;"
-        let versions = bibles.map((a) => a.version).join(" + ")
-        let books = [...new Set(bibles.map((a) => a.book))].join(" / ")
-
-        let text = customText
-        if (!showVersion && !showVerse) return
-        if (showVersion) text = text.replaceAll(textKeys.showVersion, versions)
-        if (showVerse) text = text.replaceAll(textKeys.showVerse, books + " " + bibles[0].chapter + ":" + range)
-
-        text.split("\n").forEach((line) => {
-            lines.push({ text: [{ value: line, style: verseStyle }], align: "" })
-        })
-
-        if (lines.length) {
-            // add reference to the main text if just one item
-            if (template.length <= 1 && slides[slideIndex][0]?.lines) {
-                let secondLineStyle: string = metaTemplate?.lines?.[1]?.text?.[0]?.style || "font-size: 50px;"
-                let verseLines = slides[slideIndex][0].lines || []
-                console.log(verseLines)
-                verseLines.forEach((line, i) =>
-                    line.text?.forEach((_text, j) => {
-                        verseLines[i].text[j].style = secondLineStyle
-                    })
-                )
-
-                slides[slideIndex][0].lines = [...lines, ...verseLines]
-            } else {
-                slides[slideIndex].push({
-                    lines,
-                    style: metaTemplate?.style || "top: 910px;left: 50px;width: 1820px;height: 150px;opacity: 0.8;",
-                })
-            }
-        }
-    }
-
+    $: if ($activeTriggerFunction === "scripture_newShow") createShow()
     function createShow() {
         if (verseRange) {
             let { show } = createSlides()
@@ -190,20 +67,27 @@
     function createSlides() {
         if (!bibles[0]) return { show: null }
 
+        let books = removeDuplicates(bibles.map((a) => a.book)).join(" / ")
+
         let slides2: any = {}
         let layouts: any[] = []
-        slides.forEach((items: any) => {
+        const referenceDivider = $scriptureSettings.referenceDivider || ":"
+        slides.forEach((items: any, i: number) => {
             let id = uid()
-            // TODO: group as verse numbers
-            let firstTextItem = items.find((a) => a.lines)
-            slides2[id] = { group: firstTextItem?.lines?.[0]?.text?.[0]?.value?.split(" ")?.slice(0, 4)?.join(" ")?.trim() || "", color: null, settings: {}, notes: "", items }
+
+            // get verse reference
+            let v = $scriptureSettings.versesPerSlide
+            let range: any[] = sorted.slice((i + 1) * v - v, (i + 1) * v)
+            let scriptureRef = books + " " + bibles[0].chapter + referenceDivider + joinRange(range)
+
+            slides2[id] = { group: scriptureRef || "", color: null, settings: {}, notes: "", items }
             let l: any = { id }
             layouts.push(l)
         })
 
         let layoutID = uid()
-        // TODO: private!!!?
-        let show: Show = new ShowObj(false, "scripture", layoutID, new Date().getTime(), $scriptureSettings.template || false)
+        // this can be set to private - to only add to project and not in drawer, because it's mostly not used again
+        let show: Show = new ShowObj(false, "scripture", layoutID, new Date().getTime(), $scriptureSettings.verseNumbers ? false : $scriptureSettings.template || false)
         // add scripture category
         if (!$categories.scripture) {
             categories.update((a) => {
@@ -212,17 +96,19 @@
             })
         }
 
-        // TODO: if name exists create new layout!!
-        // TODO: keep same chapter on same show (just add new layouts...?)
-        show.name = checkName(bibles[0].book + " " + bibles[0].chapter + "," + verseRange)
+        let bibleShowName = `${bibles[0].book} ${bibles[0].chapter},${verseRange}`
+        show.name = checkName(bibleShowName)
+        if (show.name !== bibleShowName) show.name = checkName(`${bibleShowName} - ${getShortBibleName(bibles[0].version || "")}`)
         show.slides = slides2
         show.layouts = { [layoutID]: { name: bibles[0].version || "", notes: "", slides: layouts } }
 
         let versions = bibles.map((a) => a.version).join(" + ")
         show.reference = {
             type: "scripture",
-            data: { collection: $drawerTabsData.scripture?.activeSubTab || bibles[0].id || "", version: versions, api: bibles[0].api, book: bibles[0].bookId || bibles[0].book, chapter: bibles[0].chapter, verses: bibles[0].activeVerses },
+            data: { collection: $drawerTabsData.scripture?.activeSubTab || bibles[0].id || "", version: versions, api: bibles[0].api, book: bibles[0].bookId ?? bibles[0].book, chapter: bibles[0].chapter, verses: bibles[0].activeVerses },
         }
+
+        // WIP add template background?
 
         return { show }
     }
@@ -234,8 +120,7 @@
     }
 
     let templateList: any[] = []
-    // TODO: sort by name
-    $: templateList = Object.entries($templates).map(([id, template]: any) => ({ id, name: template.name }))
+    $: templateList = sortByName(Object.entries($templates).map(([id, template]: any) => ({ id, name: template.name })))
 
     function update(id: string, value: any) {
         scriptureSettings.update((a) => {
@@ -249,19 +134,56 @@
     function showVerse() {
         if ($outLocked) return
 
+        // add to scripture history
+        scriptureHistory.update((a) => {
+            let newItem = {
+                id: bibles[0].id,
+                book: bibles[0].bookId,
+                chapter: bibles[0].api ? bibles[0].chapter : Number(bibles[0].chapter) - 1,
+                verse: sorted[0],
+                reference: `${bibles[0].book} ${bibles[0].chapter}:${sorted[0]}`,
+                text: bibles[0].verses[sorted[0]],
+            }
+            // WIP multiple verses, play from another version
+
+            let existingIndex = a.findIndex((a) => JSON.stringify(a) === JSON.stringify(newItem))
+            if (existingIndex > -1) a.splice(existingIndex, 1)
+            a.push(newItem)
+
+            return a
+        })
+
+        let outputIsScripture = $outputs[getActiveOutputs()[0]]?.out?.slide?.id === "temp"
+        if (!outputIsScripture) customActionActivation("scripture_start")
+
         let tempItems: Item[] = slides[0] || []
         setOutput("slide", { id: "temp", tempItems })
+
+        // play template background
+        if (!templateBackground) return
+
+        // get style (for media "fit")
+        let currentOutput = $outputs[getActiveOutputs()[0]]
+        let currentStyle = $styles[currentOutput?.style || ""] || {}
+
+        let mediaStyle = getMediaStyle($media[templateBackground], currentStyle)
+        setOutput("background", { path: templateBackground, loop: true, muted: true, ...mediaStyle })
     }
 
     $: if ($playScripture) {
         showVerse()
         playScripture.set(false)
     }
-    // $: if (verseRange && $outputs[getActiveOutputs()[0]]?.out?.slide?.id === "temp") showVerse()
 
     // show on enter
     function keydown(e: any) {
-        if (e.key !== "Enter" || (!e.ctrlKey && !e.metaKey)) return
+        if (e.key !== "Enter") return
+        if (e.target.closest(".search")) {
+            showVerse()
+            return
+        }
+
+        if (!e.ctrlKey && !e.metaKey) return
         if (e.target.closest("input") || e.target.closest(".edit")) return
 
         showVerse()
@@ -283,10 +205,6 @@
 
         return text
     }
-    const textKeys = {
-        showVersion: "[version]",
-        showVerse: "[reference]",
-    }
     function updateCustomText(id: string, value: boolean) {
         let key = textKeys[id]
 
@@ -304,6 +222,8 @@
         if (!customText.split("\n")[0] && customText.length) customText = customText.replaceAll("\n", "")
         update("customText", customText)
     }
+
+    $: containsJesusWords = Object.values(bibles?.[0]?.verses || {})?.find((text: any) => text?.includes('<span class="wj"') || text?.includes("<red"))
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -311,27 +231,38 @@
 <div class="scroll">
     <Zoomed style="width: 100%;">
         {#if bibles[0]?.activeVerses}
-            <!-- {#each slides as items} -->
+            {#if templateBackground}
+                <Media path={templateBackground} videoData={{ paused: false, muted: true, loop: true }} mirror />
+            {/if}
+
             {#each slides[0] as item}
                 <Textbox {item} ref={{ id: "scripture" }} />
             {/each}
-            <!-- {/each} -->
         {/if}
     </Zoomed>
 
-    <!-- TODO: drag&drop slide(s) -->
-
-    <!-- settings: red jw, verse numbers, verse break, max verses per slide, show version, show book&chapter&verse, text formatting -->
     <!-- settings -->
     <div class="settings">
         <CombinedInput textWidth={70}>
             <p><T id="info.template" /></p>
             <Dropdown options={templateList} value={$templates[$scriptureSettings.template]?.name || "—"} on:click={(e) => update("template", e.detail.id)} style="width: 30%;" />
         </CombinedInput>
-        <CombinedInput textWidth={70}>
-            <p><T id="scripture.max_verses" /></p>
-            <NumberInput value={$scriptureSettings.versesPerSlide} min={1} max={100} on:change={(e) => update("versesPerSlide", e.detail)} buttons={false} />
-        </CombinedInput>
+
+        {#if $scriptureSettings.versesPerSlide != 3 || sorted.length > 1}
+            <CombinedInput textWidth={70}>
+                <p><T id="scripture.max_verses" /></p>
+                <NumberInput value={$scriptureSettings.versesPerSlide} min={1} max={100} on:change={(e) => update("versesPerSlide", e.detail)} buttons={false} />
+            </CombinedInput>
+        {/if}
+        {#if $scriptureSettings.versesOnIndividualLines || (sorted.length > 1 && $scriptureSettings.versesPerSlide > 1)}
+            <CombinedInput textWidth={70}>
+                <p><T id="scripture.verses_on_individual_lines" /></p>
+                <div class="alignRight">
+                    <Checkbox id="versesOnIndividualLines" checked={$scriptureSettings.versesOnIndividualLines} on:change={checked} />
+                </div>
+            </CombinedInput>
+        {/if}
+
         <CombinedInput textWidth={70}>
             <p><T id="scripture.verse_numbers" /></p>
             <div class="alignRight">
@@ -339,9 +270,45 @@
             </div>
         </CombinedInput>
         {#if $scriptureSettings.verseNumbers}
-            <CombinedInput textWidth={70}>
+            <CombinedInput>
                 <p><T id="edit.color" /></p>
                 <Color height={20} width={50} value={$scriptureSettings.numberColor || "#919191"} on:input={(e) => update("numberColor", e.detail)} />
+            </CombinedInput>
+            <CombinedInput>
+                <p><T id="edit.size" /></p>
+                <NumberInput value={$scriptureSettings.numberSize || 50} on:change={(e) => update("numberSize", e.detail)} />
+            </CombinedInput>
+        {/if}
+
+        {#if $scriptureSettings.redJesus || containsJesusWords}
+            <CombinedInput textWidth={70}>
+                <p><T id="scripture.red_jesus" /></p>
+                <div class="alignRight">
+                    <Checkbox id="redJesus" checked={$scriptureSettings.redJesus} on:change={checked} />
+                </div>
+            </CombinedInput>
+        {/if}
+        {#if $scriptureSettings.redJesus}
+            <CombinedInput>
+                <p><T id="edit.color" /></p>
+                <Color height={20} width={50} value={$scriptureSettings.jesusColor || "#FF4136"} on:input={(e) => update("jesusColor", e.detail)} />
+            </CombinedInput>
+        {/if}
+
+        <br />
+
+        <CombinedInput textWidth={70}>
+            <p><T id="scripture.reference" /></p>
+            <div class="alignRight">
+                <Checkbox id="showVerse" checked={$scriptureSettings.showVerse} on:change={checked} />
+            </div>
+        </CombinedInput>
+        {#if $scriptureSettings.showVerse && sorted.length > 1}
+            <CombinedInput textWidth={70}>
+                <p><T id="scripture.split_reference" /></p>
+                <div class="alignRight">
+                    <Checkbox id="splitReference" checked={$scriptureSettings.splitReference !== false} on:change={checked} />
+                </div>
             </CombinedInput>
         {/if}
         <CombinedInput textWidth={70}>
@@ -350,26 +317,34 @@
                 <Checkbox id="showVersion" checked={$scriptureSettings.showVersion} on:change={checked} />
             </div>
         </CombinedInput>
-        <CombinedInput textWidth={70}>
-            <p><T id="scripture.reference" /></p>
-            <div class="alignRight">
-                <Checkbox id="showVerse" checked={$scriptureSettings.showVerse} on:change={checked} />
-            </div>
-        </CombinedInput>
+
         {#if $scriptureSettings.showVersion || ($scriptureSettings.showVersion && $scriptureSettings.showVerse) || ($scriptureSettings.showVerse && customText.trim() !== "[reference]")}
             <CombinedInput>
                 <Notes lines={2} value={customText} on:change={(e) => update("customText", e.detail)} />
             </CombinedInput>
         {/if}
-        <!-- <span>
-      <p><T id="scripture.red_jesus" /> (WIP)</p>
-      <Checkbox id="redJesus" checked={$scriptureSettings.redJesus} on:change={checked} />
-    </span> -->
+
+        {#if $scriptureSettings.showVersion || $scriptureSettings.showVerse}
+            <CombinedInput textWidth={70}>
+                <p><T id="scripture.combine_with_text" /></p>
+                <div class="alignRight">
+                    <Checkbox id="combineWithText" checked={$scriptureSettings.combineWithText} on:change={checked} />
+                </div>
+            </CombinedInput>
+            {#if $scriptureSettings.combineWithText}
+                <CombinedInput textWidth={70}>
+                    <p><T id="scripture.reference_at_bottom" /></p>
+                    <div class="alignRight">
+                        <Checkbox id="referenceAtBottom" checked={$scriptureSettings.referenceAtBottom} on:change={checked} />
+                    </div>
+                </CombinedInput>
+            {/if}
+        {/if}
     </div>
 </div>
 
 <Button on:click={createShow} style="width: 100%;" disabled={!verseRange} dark center>
-    <Icon id="show" right />
+    <Icon id="slide" right />
     <T id="new.show" />
     {#if slides.length > 1}
         <span style="opacity: 0.5;margin-left: 0.5em;">({slides.length})</span>

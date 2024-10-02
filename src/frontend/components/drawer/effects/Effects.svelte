@@ -1,6 +1,7 @@
 <script lang="ts">
     import { mediaOptions, outLocked, outputs, styles } from "../../../stores"
     import T from "../../helpers/T.svelte"
+    import { clone, keysToID, sortByName } from "../../helpers/array"
     import { findMatchingOut, getResolution, setOutput } from "../../helpers/output"
     import Effect from "../../output/effects/Effect.svelte"
     import Center from "../../system/Center.svelte"
@@ -15,17 +16,15 @@
     $: resolution = getResolution(null, { $outputs, $styles })
 
     let filteredEffects: any[] = []
-    $: filteredEffects = Object.keys(effects)
-        .map((id) => ({ id, ...effects[id] }))
-        .sort((a, b) => a.name.localeCompare(b.name))
+    $: filteredEffects = sortByName(keysToID(effects))
 
     // search
     $: if (filteredEffects || searchValue !== undefined) filterSearch()
     const filter = (s: string) => s.toLowerCase().replace(/[.,\/#!?$%\^&\*;:{}=\-_`~()]/g, "")
     let fullFilteredEffects: any[] = []
     function filterSearch() {
-        fullFilteredEffects = JSON.parse(JSON.stringify(filteredEffects))
-        if (searchValue.length > 1) fullFilteredEffects = fullFilteredEffects.filter((a) => filter(a.name).includes(searchValue))
+        fullFilteredEffects = clone(filteredEffects)
+        if (searchValue.length > 1) fullFilteredEffects = fullFilteredEffects.filter((a) => filter(a.name).includes(filter(searchValue)))
     }
 
     let nextScrollTimeout: any = null
@@ -36,7 +35,7 @@
         mediaOptions.set({ ...$mediaOptions, columns: Math.max(2, Math.min(10, $mediaOptions.columns + (e.deltaY < 0 ? -100 : 100) / 100)) })
 
         // don't start timeout if scrolling with mouse
-        if (e.deltaY > 100 || e.deltaY < -100) return
+        if (e.deltaY >= 100 || e.deltaY <= -100) return
         nextScrollTimeout = setTimeout(() => {
             nextScrollTimeout = null
         }, 500)

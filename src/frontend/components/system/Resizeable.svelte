@@ -1,11 +1,25 @@
 <script lang="ts">
+    import { onMount } from "svelte"
+    import { resized } from "../../stores"
+    import { DEFAULT_WIDTH } from "../../utils/common"
+
     export let id: string
     export let side: "left" | "right" | "top" | "bottom" = "left"
-    export let width: number = 300
-    let defaultWidth: number = Number(width.toString())
+
+    let width: number = DEFAULT_WIDTH
     let handleWidth: number = 4
-    export let maxWidth: number = defaultWidth * 2 // * 3
+    export let maxWidth: number = DEFAULT_WIDTH * 2.2
     export let minWidth: number = handleWidth
+
+    $: if (!mouse && $resized[id]) width = $resized[id]
+
+    let loaded = false
+    onMount(() => {
+        setTimeout(() => {
+            width = $resized[id] ?? DEFAULT_WIDTH
+            loaded = true
+        }, 2000)
+    })
 
     let move: boolean = false
     let mouse: null | { x: number; y: number; offset: number; target: any } = null
@@ -39,9 +53,9 @@
     }
 
     function getWidth(width: number) {
-        if (width < (defaultWidth * 0.6) / 2) return minWidth
-        if (width < defaultWidth * 0.6) return defaultWidth * 0.6
-        if (width > defaultWidth - 20 && width < defaultWidth + 20) return defaultWidth
+        if (width < (DEFAULT_WIDTH * 0.6) / 2) return minWidth
+        if (width < DEFAULT_WIDTH * 0.6) return DEFAULT_WIDTH * 0.6
+        if (width > DEFAULT_WIDTH - 20 && width < DEFAULT_WIDTH + 20) return DEFAULT_WIDTH
         if (width > maxWidth) return maxWidth
         move = true
         return width
@@ -52,7 +66,6 @@
     }
 
     let storeWidth: null | number = null
-    // TODO: pressing button with keyboard will close panel
     function click(e: any) {
         if (move || !conditions[side](e)) {
             move = false
@@ -65,8 +78,18 @@
             return
         }
 
-        width = storeWidth === null || storeWidth < defaultWidth / 2 ? defaultWidth : storeWidth
+        width = storeWidth === null || storeWidth < DEFAULT_WIDTH / 2 ? DEFAULT_WIDTH : storeWidth
         storeWidth = null
+    }
+
+    $: if (width !== null) storeValue()
+    function storeValue() {
+        if (!loaded) return
+
+        resized.update((a) => {
+            a[id] = width
+            return a
+        })
     }
 
     function mouseup(e: any) {
@@ -88,13 +111,16 @@
         justify-content: space-between;
         overflow: hidden;
         position: relative;
+        /* background: var(--primary); */
     }
 
     :global(.bar_left) {
         padding-right: var(--handle-width);
+        /* border-radius: 0 var(--border-radius) var(--border-radius) 0; */
     }
     :global(.bar_right) {
         padding-left: var(--handle-width);
+        /* border-radius: var(--border-radius) 0 0 var(--border-radius); */
     }
     :global(.bar_top) {
         padding-bottom: var(--handle-width);

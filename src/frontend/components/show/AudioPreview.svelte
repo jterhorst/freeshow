@@ -1,14 +1,16 @@
 <script lang="ts">
-    import { activeShow, dictionary, outLocked, playingAudio } from "../../stores"
-    import { clearAudio, getAudioDuration, playAudio } from "../helpers/audio"
+    import { dictionary, focusMode, media, outLocked, playingAudio } from "../../stores"
+    import { clearAudio, getAudioDuration, playAudio, updateVolume } from "../helpers/audio"
     import Icon from "../helpers/Icon.svelte"
     import { joinTime, secondsToTime } from "../helpers/time"
     import Button from "../inputs/Button.svelte"
     import Slider from "../inputs/Slider.svelte"
 
-    $: path = $activeShow?.id || ""
-    $: name = $activeShow?.name || ""
-    $: isMic = $activeShow?.data?.isMic
+    export let active: any
+
+    $: path = active?.id || ""
+    $: name = active?.name || ""
+    $: isMic = active?.data?.isMic
     $: playing = $playingAudio[path] || {}
     $: paused = playing.paused !== false
 
@@ -39,8 +41,14 @@
 
     function setTime(e: any) {
         sliderValue = null
-        if (playing.audio) playing.audio.currentTime = e.target.value
-        else currentTime = e.target.value
+        if (playing.audio) {
+            playing.audio.currentTime = e.target.value
+
+            // something (in audio.ts I guess) plays the audio when updating the time, so this will pause it again
+            if (paused) setTimeout(() => playing.audio.pause(), 20)
+        } else {
+            currentTime = e.target.value
+        }
     }
 
     let sliderValue: any = null
@@ -50,7 +58,7 @@
 
     function keydown(e: any) {
         // if (e.target.closest("input") || e.target.closest(".edit")) return
-        if ($outLocked || isMic || document.activeElement !== document.body) return
+        if ($outLocked || isMic || $focusMode || document.activeElement !== document.body) return
 
         if (e.key === " ") playAudio({ path, name }, true, currentTime)
     }
@@ -123,11 +131,16 @@
 
         renderFrame()
     }
+
+    let fullLength: boolean = false
 </script>
 
 <svelte:window on:keydown={keydown} />
 
-<canvas bind:this={canvas} />
+{#if !$focusMode}
+    <!-- analyzer -->
+    <canvas bind:this={canvas} />
+{/if}
 
 <div class="main media context #media_preview">
     <div class="buttons">
@@ -152,9 +165,15 @@
                 {joinTime(secondsToTime(currentTime))}
             </span>
         {/if}
+
         <Slider disabled={isMic} value={currentTime} max={duration} on:input={setSliderValue} on:change={setTime} />
-        <span style={isMic ? "opacity: 0.5;" : ""}>
-            {joinTime(secondsToTime(duration))}
+
+        <span style={isMic ? "opacity: 0.5;" : fullLength || !currentTime ? "" : "color: var(--secondary)"} on:click={() => (fullLength = !fullLength)}>
+            {#if !isMic && fullLength}
+                {joinTime(secondsToTime(duration))}
+            {:else}
+                {joinTime(secondsToTime(duration - Math.floor(currentTime)))}
+            {/if}
         </span>
 
         <div style="display: flex;">
@@ -170,27 +189,63 @@
             >
                 <Icon id={"stop"} white size={1.2} />
             </Button>
+            <!-- LOOP -->
             {#if !isMic}
                 <Button
                     center
                     title={$dictionary.media?._loop}
-                    disabled={!$playingAudio[path]}
                     on:click={() => {
-                        if (!$playingAudio[path]) return
-
-                        playingAudio.update((a) => {
-                            a[path].loop = !playing.loop
+                        let loop = !$media[path]?.loop
+                        media.update((a) => {
+                            if (!a[path]) a[path] = {}
+                            a[path].loop = loop
 
                             return a
                         })
                     }}
                 >
-                    <Icon id="loop" white={!playing.loop} size={1.2} />
+                    <Icon id="loop" white={!$media[path]?.loop} size={1.2} />
                 </Button>
             {/if}
-        </div>
+            <!-- VOLUME -->
+            <Button
+                center
+                title={$dictionary.actions?.decrease_volume}
+                disabled={($media[path]?.volume || 1) < 0.06}
+                on:click={() => {
+                    let volume = $media[path]?.volume || 1
+                    media.update((a) => {
+                        if (!a[path]) a[path] = {}
+                        a[path].volume = Math.max(0.05, (volume * 100 - 5) / 100)
 
-        <!-- TODO: individual volume -->
+                        return a
+                    })
+
+                    updateVolume("local")
+                }}
+            >
+                <Icon id="volume_down" white size={1.2} />
+            </Button>
+            <Button
+                center
+                title={$dictionary.actions?.increase_volume}
+                disabled={($media[path]?.volume || 1) >= 1}
+                on:click={() => {
+                    let volume = $media[path]?.volume || 1
+                    media.update((a) => {
+                        if (!a[path]) a[path] = {}
+                        a[path].volume = Math.min(1, (volume * 100 + 5) / 100)
+
+                        return a
+                    })
+
+                    updateVolume("local")
+                }}
+            >
+                <Icon id="volume" white size={1.2} />
+            </Button>
+            <p style="align-self: center;text-align: center;min-width: 50px;padding: 0 5px;">{Math.floor(($media[path]?.volume || 1) * 100)}%</p>
+        </div>
     </div>
 </div>
 
@@ -206,7 +261,7 @@
     .buttons {
         display: flex;
         width: 100%;
-        height: fit-content;
+        /* height: fit-content; */
         gap: 10px;
         align-items: center;
 

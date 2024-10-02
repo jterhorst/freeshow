@@ -1,14 +1,23 @@
 <script lang="ts">
-    import { dictionary, shows } from "../../stores"
+    import { activeShow, dictionary, shows, templates } from "../../stores"
+    import { translate } from "../../utils/language"
+    import { actionData } from "../actions/actionData"
+    import { getActionName } from "../actions/actions"
+    import { clone } from "../helpers/array"
     import { history } from "../helpers/history"
     import Icon from "../helpers/Icon.svelte"
     import Button from "../inputs/Button.svelte"
 
     export let columns: number
-    export let index: number
+    export let index: number = -1
+    export let templateId: string = ""
     export let actions: any
 
-    function changeSlideAction(id: string, save: boolean = true) {
+    $: currentShow = $shows[$activeShow?.id || ""] || {}
+
+    function changeAction(id: string, save: boolean = true) {
+        if (templateId || currentShow.locked) return
+
         let data = { ...actions, [id]: actions[id] ? !actions[id] : true }
 
         if (id === "outputStyle" && !data[id]) delete data.styleOutputs
@@ -16,41 +25,69 @@
         history({ id: "SHOW_LAYOUT", save, newData: { key: "actions", data, indexes: [index] } })
     }
 
-    // delete receiveMidi if it don't exists
-    // $: if (actions.receiveMidi && !$midiIn[actions.receiveMidi]) {
-    //     changeSlideAction("receiveMidi", false)
-    // }
+    function deleteSlideAction(id: string) {
+        if (currentShow.locked) return
 
-    const actionsList = [
-        { id: "animate", title: $dictionary.popup?.animate, icon: "stars", white: true },
-        { id: "startShow", name: ({ id }) => $shows[id]?.name || "", title: $dictionary.preview?._start, icon: "showIcon", white: true },
-        { id: "nextAfterMedia", title: $dictionary.actions?.next_after_media, icon: "forward", white: true },
-        { id: "startTimer", title: $dictionary.actions?.start_timer, icon: "timer", white: true },
-        { id: "outputStyle", title: $dictionary.actions?.change_output_style, icon: "styles", white: true },
-        { id: "receiveMidi", title: $dictionary.actions?.play_on_midi, icon: "play", white: true },
-        { id: "sendMidi", title: $dictionary.actions?.send_midi, icon: "music", white: true },
-        { id: "stopTimers", title: $dictionary.actions?.stop_timers, icon: "stop" },
-        { id: "clearBackground", title: $dictionary.clear?.background, icon: "background" },
-        { id: "clearOverlays", title: $dictionary.clear?.overlays, icon: "overlays" },
-        { id: "clearAudio", title: $dictionary.clear?.audio, icon: "audio" },
+        let slideActions = clone(actions.slideActions)
+        let actionIndex = slideActions.findIndex((a) => a.id === id || a.triggers?.[0] === id)
+        if (actionIndex < 0) return
+        slideActions.splice(actionIndex, 1)
+
+        if (templateId) {
+            let templateSettings = $templates[templateId]?.settings || {}
+            templateSettings.actions = slideActions
+
+            let newData = { key: "settings", data: templateSettings }
+            history({ id: "UPDATE", newData, oldData: { id: templateId }, location: { page: "drawer", id: "template_settings", override: `actions_${templateId}` } })
+
+            return
+        }
+
+        let data = { ...actions, slideActions }
+
+        history({ id: "SHOW_LAYOUT", newData: { key: "actions", data, indexes: [index] } })
+    }
+
+    const actionsList: any = [
+        { id: "nextAfterMedia", title: $dictionary.actions?.next_after_media, icon: "forward" },
+        { id: "animate", title: $dictionary.popup?.animate, icon: "stars" },
+        { id: "receiveMidi", title: $dictionary.actions?.play_on_midi, icon: "play" },
     ]
+
+    // WIP MIDI convert into new
+    // actionData get slideId and convert into slideActions
+
+    $: zoom = 4 / columns
 </script>
 
-<div class="icons" style="zoom: {4 / columns};">
+<div class="icons" style="zoom: {zoom};">
     {#each actionsList as action}
         {#if actions[action.id]}
-            <div>
-                <div class="button {action.white ? 'white' : ''}">
-                    <Button style="padding: 3px;" redHover title={$dictionary.actions?.remove + ": " + action.title} on:click={() => changeSlideAction(action.id)}>
-                        {#if action.name}
-                            <p>{action.name(actions[action.id])}</p>
-                        {/if}
-                        <Icon id={action.icon} size={0.9} white />
-                    </Button>
-                </div>
+            <div class="button white">
+                <Button style="padding: 3px;" redHover title="{$dictionary.actions?.remove}: {action.title}" {zoom} on:click={() => changeAction(action.id)}>
+                    <Icon id={action.icon} size={0.9} white />
+                </Button>
             </div>
         {/if}
     {/each}
+
+    <!-- slide actions -->
+    {#if actions.slideActions?.length}
+        {#each actions.slideActions as action}
+            <!-- should be always just one trigger on each action when on a slide -->
+            {@const actionId = action.triggers?.[0] || ""}
+            {@const actionValue = action?.actionValues?.[actionId] || {}}
+            {@const customData = actionData[actionId] || {}}
+            {@const customName = getActionName(actionId, actionValue)}
+
+            <div class="button {customData.red ? '' : 'white'}">
+                <Button style="padding: 3px;" redHover title="{$dictionary.actions?.remove}: {translate(customData.name)}" {zoom} on:click={() => deleteSlideAction(action.id || actionId)}>
+                    {#if customName}<p>{customName}</p>{/if}
+                    <Icon id={customData.icon || "actions"} size={0.9} white />
+                </Button>
+            </div>
+        {/each}
+    {/if}
 </div>
 
 <style>

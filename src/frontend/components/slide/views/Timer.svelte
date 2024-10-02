@@ -1,7 +1,8 @@
 <script lang="ts">
     import type { Item } from "../../../../types/Show"
-    import { activeDrawerTab, activeTimers, drawer, drawerTabsData, timers } from "../../../stores"
+    import { activeDrawerTab, activeTimers, drawer, timers } from "../../../stores"
     import { getCurrentTimerValue } from "../../drawer/timers/timers"
+    import { setDrawerTabData } from "../../helpers/historyHelpers"
     import { getStyles } from "../../helpers/style"
     // import { blur } from "svelte/transition"
     import { joinTimeBig } from "../../helpers/time"
@@ -17,17 +18,14 @@
     $: ref = { id }
     $: timer = $timers[id] || {}
 
-    // TODO: timer stops when leaving window...
-    // TODO: update timer type (in editor)
-
     let times: string[] = []
     let timeValue: string = "00:00"
     let currentTime: number
     // $: currentTime = getCurrentTime()
     $: timeValue = joinTimeBig(typeof currentTime === "number" ? currentTime : 0)
 
-    $: if (timer) currentTime = getCurrentTimerValue(timer, ref, today, $activeTimers)
-    $: console.log(currentTime, $activeTimers, $timers, id, timer)
+    $: if (Object.keys(timer).length) currentTime = getCurrentTimerValue(timer, ref, today, $activeTimers)
+    else currentTime = 0
 
     $: min = Math.min(timer.start || 0, timer.end || 0)
     $: max = Math.max(timer.start || 0, timer.end || 0)
@@ -35,10 +33,13 @@
     $: itemColor = getStyles(item?.style)?.color || "white"
 
     $: overflow = getTimerOverflow(currentTime)
-    $: negative = timer?.start! > timer?.end!
+    $: negative = timer?.start! > timer?.end! || currentTime < 0
     function getTimerOverflow(time) {
-        if (!timer.overflow || timer.type !== "counter") return false
         if (!timer.overflow) return false
+
+        if (currentTime < 0) return true
+        if (timer.type !== "counter") return false
+
         let start: number = timer.start!
         let end: number = timer.end!
 
@@ -54,11 +55,8 @@
     function openInDrawer() {
         if (!edit) return
 
-        drawerTabsData.update((a) => {
-            a.calendar.activeSubTab = "timer"
-            return a
-        })
-        activeDrawerTab.set("calendar")
+        setDrawerTabData("functions", "timer")
+        activeDrawerTab.set("functions")
 
         // open drawer if closed
         if ($drawer.height <= 40) drawer.set({ height: $drawer.stored || 300, stored: null })
@@ -70,11 +68,12 @@
 {:else if item?.timer?.viewType === "circle"}
     <div class="circle" class:mask={item?.timer?.circleMask} style="--percentage: {percentage};--color: {itemColor};" on:dblclick={openInDrawer} />
 {:else}
-    <div class="align" style="{style}{item?.align || ''}" on:dblclick={openInDrawer}>
+    <div class="align" style="{style}{(item?.align || '').replaceAll('text-align', 'justify-content')}" on:dblclick={openInDrawer}>
         <div style="display: flex;white-space: nowrap;{overflow ? 'color: ' + (timer.overflowColor || 'red') + ';' : ''}">
             {#if overflow && negative}
                 <span>-</span>
             {/if}
+
             {#if times.length}
                 {#each times as ti, i}
                     <div style="position: relative;display: flex;">
@@ -135,8 +134,12 @@
         /* border-radius: 50%; */
 
         inset: 0;
-        background: radial-gradient(farthest-side, var(--color) 98%, #0000) top/var(--lineWidth) var(--lineWidth) no-repeat, conic-gradient(var(--color) calc(var(--percentage) * 1%), #0000 0);
-        background-size: 0 0, auto;
+        background:
+            radial-gradient(farthest-side, var(--color) 98%, #0000) top/var(--lineWidth) var(--lineWidth) no-repeat,
+            conic-gradient(var(--color) calc(var(--percentage) * 1%), #0000 0);
+        background-size:
+            0 0,
+            auto;
     }
     .circle.mask:before {
         -webkit-mask: radial-gradient(farthest-side, #0000 calc(99% - var(--lineWidth)), #000 calc(100% - var(--lineWidth)));

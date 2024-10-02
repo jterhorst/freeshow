@@ -3,6 +3,7 @@
     import type { Item } from "../../../types/Show"
     import { getStyles } from "../helpers/style"
     import Clock from "../items/Clock.svelte"
+    import Button from "./Button.svelte"
     import Icon from "./Icon.svelte"
     import ListView from "./ListView.svelte"
 
@@ -14,6 +15,8 @@
     export let fontSize: number = 0
     export let autoSize: boolean = true
     export let ratio: number = 1
+    export let maxLines: number = 0 // stage next item preview
+    export let customStyle: string = ""
 
     // dynamic resolution
     let resolution = { width: window.innerWidth, height: window.innerHeight }
@@ -28,17 +31,6 @@
   `
     if (autoStage) itemStyle = itemStyle + newSizes
 
-    // TODO: use autoSize.ts
-    // let height: number = 0
-    // $: lineCount =
-    //   item.lines?.reduce((count, line) => {
-    //     let fullText = line.text.map((text) => text.value).join("")
-    //     let lineBreaks = Math.ceil(fullText.length / 40)
-    //     return count + lineBreaks
-    //   }, 0) || 0
-    // // $: autoSize = item.lines ? height / (item.lines.length + 3) : 0
-    // $: autoSize = item.lines ? height / (lineCount + 3) : 0
-
     $: lineGap = item?.specialStyle?.lineGap
     $: lineBg = item?.specialStyle?.lineBg
 
@@ -49,30 +41,37 @@
         loaded = true
     })
 
-    $: console.log(autoSize, fontSize, stageItem, loaded)
-
     let alignElem: any
     let loopStop = false
-    const MAX_FONT_SIZE = 500
+    const MAX_FONT_SIZE = 800 // TODO: stage custom text fit size
     const MIN_FONT_SIZE = 10
 
     $: if (autoSize && loaded) getCustomAutoSize()
     function getCustomAutoSize() {
-        console.log(loopStop, !loaded, !alignElem, !autoSize)
         if (loopStop || !loaded || !alignElem || !autoSize) return
         loopStop = true
 
         fontSize = MAX_FONT_SIZE
         addStyleToElemText(fontSize)
 
-        console.log(fontSize)
+        // quick search (double divide)
+        let lowestValue = MIN_FONT_SIZE
+        let highestValue = MAX_FONT_SIZE
+        let biggerThanSize = true
+        while (highestValue - lowestValue > 3) {
+            let difference = (highestValue - lowestValue) / 2
+            if (biggerThanSize) {
+                highestValue = fontSize
+                fontSize -= difference
+            } else {
+                lowestValue = fontSize
+                fontSize += difference
+            }
 
-        while (fontSize > MIN_FONT_SIZE && (alignElem.scrollHeight > alignElem.offsetHeight || alignElem.scrollWidth > alignElem.offsetWidth)) {
-            fontSize--
             addStyleToElemText(fontSize)
+            biggerThanSize = alignElem.scrollHeight > alignElem.offsetHeight || alignElem.scrollWidth > alignElem.offsetWidth
         }
-
-        console.log(fontSize)
+        fontSize = lowestValue // prefer lowest value
 
         function addStyleToElemText(fontSize: number) {
             for (let linesElem of alignElem.children) {
@@ -91,6 +90,7 @@
 
     // CHORDS
 
+    // WIP auto size here does not set correct size in stage output
     let chordLines: string[] = []
     $: if (chords && item.lines) createChordLines()
     function createChordLines() {
@@ -100,8 +100,18 @@
             if (!line.chords?.length || !line.text) return
 
             let chords = JSON.parse(JSON.stringify(line.chords || []))
+            let negativeChords = chords.filter((chord: any) => chord.pos < 0)
+            chords = chords.filter((chord: any) => chord.pos >= 0)
 
             let html = ""
+
+            //add negative chords at the beginning of the line
+            negativeChords
+                .sort((a: any, b: any) => b.pos - a.pos)
+                .forEach((chord: any, i: number) => {
+                    html += `<span class="chord" style="transform: translateX(calc(-100% - ${60 * (i + 1)}px));">${chord.key}</span>`
+                })
+
             let index = 0
             line.text.forEach((text) => {
                 let value = text.value.trim().replaceAll("\n", "") || "."
@@ -120,32 +130,125 @@
                 })
             })
 
-            chords.forEach((chord: any, i: number) => {
-                html += `<span class="chord" style="transform: translateX(${60 * (i + 1)}px);">${chord.key}</span>`
-            })
+            chords
+                .sort((a: any, b: any) => a.pos - b.pos)
+                .forEach((chord: any, i: number) => {
+                    html += `<span class="chord" style="transform: translateX(${60 * (i + 1)}px);">${chord.key}</span>`
+                })
 
             if (!html) return
             chordLines[i] = html
         })
     }
+
+    let thisElem: any
+    let actionButtons: boolean = false
+    function toggleActions(e: any) {
+        if (e.target.closest("button")) return
+
+        if (actionButtons) {
+            setTimeout(() => {
+                actionButtons = false
+            }, 20)
+        } else {
+            actionButtons = true
+        }
+    }
+
+    function closeActions(e: any) {
+        if (e.target.closest("button") || e.target.closest(".item") === thisElem) return
+
+        setTimeout(() => {
+            actionButtons = false
+        }, 20)
+    }
+
+    // CHORDS TRANSPOSE
+
+    let defaultChords: any = {}
+    let amountTransposed: number = 0
+    function transpose(action: "up" | "down" | "reset") {
+        if (action === "reset") amountTransposed = 0
+        else if (action === "up") amountTransposed++
+        else if (action === "down") amountTransposed--
+
+        item.lines!.forEach((line) => {
+            if (!line.chords?.length || !line.text) return
+
+            let chords = JSON.parse(JSON.stringify(line.chords || []))
+            chords?.forEach((chord: any) => {
+                if (!defaultChords[chord.id]) defaultChords[chord.id] = chord.key
+
+                let rootNote = defaultChords[chord.id]
+
+                if (action === "reset") {
+                    chord.key = rootNote
+                    return
+                }
+
+                chord.key = transposeChord(rootNote, amountTransposed)
+            })
+
+            line.chords = chords
+        })
+
+        createChordLines()
+    }
+
+    const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    function transposeChord(chord: string, semitones: number) {
+        // split the chord into root note, bass note, and chord quality
+        let [rootNote, bassNote, chordQuality] = chord.match(/([A-G]#?)(\/[A-G]#?)?(.*)/)?.slice(1) || []
+
+        const transposedRootNote = transposeNote(rootNote)
+        if (bassNote) bassNote = "/" + transposeNote(bassNote.slice(1))
+
+        function transposeNote(note: string) {
+            let index = notes.indexOf(note.toUpperCase())
+            let transposedIndex = (index + semitones) % 12
+            if (transposedIndex < 0) transposedIndex += 12
+
+            return notes[transposedIndex]
+        }
+
+        return transposedRootNote + (bassNote || "") + chordQuality
+    }
 </script>
 
+<svelte:window on:click={closeActions} />
+
 <!-- bind:offsetHeight={height} -->
-<div class="item" style={style ? itemStyle : null}>
+<div bind:this={thisElem} class="item" style={style ? itemStyle : null} on:click={toggleActions}>
+    {#if actionButtons}
+        <div class="actions">
+            {#if chordLines.length}
+                <div class="flex">
+                    <p style="margin-right: 8px;">Transpose</p>
+                    <Button on:click={() => transpose("down")} title="Down one" dark>{"-1"}</Button>
+                    <Button on:click={() => transpose("reset")} title="Reset" dark>{"0"}</Button>
+                    <Button on:click={() => transpose("up")} title="Up one" dark>{"+1"}</Button>
+                </div>
+            {/if}
+        </div>
+    {/if}
+
     {#if item.lines}
         <div class="align" style={style ? item.align : null} bind:this={alignElem}>
             <div class="lines" style={style && lineGap ? `gap: ${lineGap}px;` : ""}>
                 {#each item.lines as line, i}
-                    {#if chordLines[i]}
-                        <div class:first={i === 0} class="break chords" style="--chord-size: {stageItem?.chordsData?.size || 30}px;--chord-color: {stageItem?.chordsData?.color || '#FF851B'};--font-size: {fontSize}px;">
-                            {@html chordLines[i]}
+                    {#if !maxLines || i < maxLines}
+                        <!-- WIP chords are way bigger than stage preview for some reason -->
+                        {#if chordLines[i]}
+                            <div class:first={i === 0} class="break chords" style="--chord-size: {stageItem?.chordsData?.size || 30}px;--chord-color: {stageItem?.chordsData?.color || '#FF851B'};--font-size: {fontSize}px;">
+                                {@html chordLines[i]}
+                            </div>
+                        {/if}
+                        <div class="break" style="{style && lineBg ? `background-color: ${lineBg};` : ''}{style ? line.align : ''}">
+                            {#each line.text || [] as text}
+                                <span style="{style ? text.style + (fontSize ? 'font-size: ' + fontSize + 'px;' : '') : 'font-size: ' + fontSize + 'px;'}{customStyle}">{@html text.value.replaceAll("\n", "<br>") || "<br>"}</span>
+                            {/each}
                         </div>
                     {/if}
-                    <div class="break" style="{style && lineBg ? `background-color: ${lineBg};` : ''}{style ? line.align : ''}">
-                        {#each line.text || [] as text}
-                            <span style={style ? text.style + (fontSize ? "font-size: " + fontSize + "px;" : "") : "font-size: " + fontSize + "px;"}>{@html text.value.replaceAll("\n", "<br>") || "<br>"}</span>
-                        {/each}
-                    </div>
                 {/each}
             </div>
         </div>
@@ -201,6 +304,25 @@
         width: 400px;
     }
 
+    .actions {
+        position: absolute;
+        bottom: 0;
+        left: 50%;
+        /* transform: translate(-50%, 100%); */
+        transform: translateX(-50%);
+
+        /* background-color: rgb(0 0 0 / 0.5); */
+        background-color: var(--primary);
+        padding: 5px 10px;
+        font-size: 0.8em;
+        z-index: 2;
+    }
+
+    .flex {
+        display: flex;
+        align-items: center;
+    }
+
     .align {
         height: 100%;
         display: flex;
@@ -222,6 +344,7 @@
     .break {
         width: 100%;
 
+        font-size: 0; /* auto size fix */
         /* height: 100%; */
         user-select: text;
 

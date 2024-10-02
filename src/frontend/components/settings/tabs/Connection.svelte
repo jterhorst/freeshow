@@ -1,12 +1,12 @@
 <script lang="ts">
-    import { onMount } from "svelte"
+    import { onDestroy, onMount } from "svelte"
     import { MAIN } from "../../../../types/Channels"
-    import { activePopup, connections, disabledServers, maxConnections, outputs, popupData, ports, remotePassword, serverData } from "../../../stores"
-    import { receive, send } from "../../../utils/request"
+    import { activePopup, companion, connections, disabledServers, maxConnections, outputs, popupData, ports, remotePassword, serverData } from "../../../stores"
+    import { destroy, receive, send } from "../../../utils/request"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
-    import { clone, keysToID } from "../../helpers/array"
-    import { getActiveOutputs } from "../../helpers/output"
+    import { clone, keysToID, sortByName } from "../../helpers/array"
+    import { checkWindowCapture, getActiveOutputs } from "../../helpers/output"
     import Button from "../../inputs/Button.svelte"
     import Checkbox from "../../inputs/Checkbox.svelte"
     import CombinedInput from "../../inputs/CombinedInput.svelte"
@@ -17,23 +17,27 @@
     const setRemotePassword = (e: any) => remotePassword.set(e.target.value)
 
     let ip = "IP"
+    let listenerId = "IP_ADDRESS"
     onMount(() => send(MAIN, ["IP"]))
-    receive(MAIN, { IP: (a: any) => getIP(a) })
+    receive(MAIN, { IP: (a: any) => getIP(a) }, listenerId)
     // receive(MAIN, { IP: (a: any) => (ip = a["Wi-Fi"]?.filter((a: any) => a.family === "IPv4")[0].address) })
+    onDestroy(() => destroy(MAIN, listenerId))
 
     function getIP(nets: any) {
         let results: any = {}
         for (const name of Object.keys(nets)) {
             for (const net of nets[name]) {
                 // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
-                if (net.family === "IPv4" && !net.internal) {
+                // 'IPv4' is in Node <= 17, from 18 it's a number 4 or 6
+                const familyV4Value = typeof net.family === "string" ? "IPv4" : 4
+                if (net.family === familyV4Value && !net.internal) {
                     if (!results[name]) results[name] = []
                     results[name].push(net.address)
                 }
             }
         }
 
-        ip = results["en0"]?.[0] || results["Wi-Fi"]?.[0] || "IP"
+        ip = results["en0"]?.[0] || results["eth0"]?.[0] || results["Wi-Fi"]?.[0] || Object.values(results)[0]?.[0] || "IP"
     }
 
     function reset() {
@@ -55,18 +59,33 @@
     }
 
     function toggleServer(e: any, id: string) {
-        disabledServers.update((a) => {
-            a[id] = !e.target.checked
+        let value = !e.target.checked
 
+        disabledServers.update((a) => {
+            a[id] = value
             return a
         })
+
+        if (id === "output_stream") checkWindowCapture()
+    }
+
+    function toggleCompanion(e: any) {
+        let value = e.target.checked
+
+        companion.update((a) => {
+            a.enabled = value
+            return a
+        })
+
+        if (value) send(MAIN, ["WEBSOCKET_START"], $ports.companion)
+        else send(MAIN, ["WEBSOCKET_STOP"])
     }
 
     // output
     $: outputsList = getList(clone($outputs))
     function getList(outputs) {
         let list = keysToID(outputs).filter((a) => !a.isKeyOutput && a.enabled === true)
-        return list.sort((a, b) => a.name.localeCompare(b.name))
+        return sortByName(list)
     }
 
     function setOutputId(e: any) {
@@ -97,6 +116,8 @@
         { id: "stage", name: "StageShow", defaultPort: 5511, icon: "stage", enabledByDefault: true },
         { id: "controller", name: "ControlShow", defaultPort: 5512, icon: "connection", enabledByDefault: false },
         { id: "output_stream", name: "OutputShow", defaultPort: 5513, icon: "stage", enabledByDefault: false },
+        { id: "companion", name: "Bitfocus Companion (WebSocket/REST)", defaultPort: 5505, icon: "companion", enabledByDefault: false, url: "https://freeshow.app/docs/companion" },
+        // { id: "rest", name: "REST Listener", defaultPort: 5506, icon: "companion", enabledByDefault: false, url: "https://freeshow.app/docs/api" },
     ]
     // Camera
     // Answer / Guess / Poll
@@ -115,29 +136,40 @@
 </div> -->
 
 {#each servers as server}
+    {@const disabled = server.id === "companion" ? $companion.enabled !== true : server.enabledByDefault ? $disabledServers[server.id] === true : $disabledServers[server.id] !== false}
     <CombinedInput>
         <span style="flex: 1;">
             <Button
                 style="width: 100%;"
                 on:click={() => {
+                    if (server.url) {
+                        send(MAIN, ["URL"], server.url)
+                        return
+                    }
+
                     popupData.set({ ip, id: server.id })
                     activePopup.set("connect")
                 }}
-                disabled={server.enabledByDefault ? $disabledServers[server.id] === true : $disabledServers[server.id] !== false}
+                {disabled}
             >
                 <div style="margin: 0;">
                     <Icon id={server.icon} size={1.1} right />
                     <p>
                         {server.name}
                         <span class="connections">{Object.keys($connections[server.id.toUpperCase()] || {})?.length || ""}</span>
+                        {#if server.url}<Icon id="launch" white />{/if}
                     </p>
                 </div>
             </Button>
         </span>
         <span style="display: flex;">
             <span style="flex: 1;">
-                <span style="display: flex;align-items: center;padding: 0 10px;">
-                    <Checkbox checked={server.enabledByDefault ? $disabledServers[server.id] !== true : $disabledServers[server.id] === false} on:change={(e) => toggleServer(e, server.id)} />
+                <span class="alignLeft">
+                    {#if server.id === "companion"}
+                        <Checkbox checked={$companion.enabled === true} on:change={toggleCompanion} />
+                    {:else}
+                        <Checkbox checked={server.enabledByDefault ? $disabledServers[server.id] !== true : $disabledServers[server.id] === false} on:change={(e) => toggleServer(e, server.id)} />
+                    {/if}
                 </span>
             </span>
             <span style="display: flex;flex: 1;">

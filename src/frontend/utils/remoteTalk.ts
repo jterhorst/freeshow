@@ -1,16 +1,19 @@
 import { get } from "svelte/store"
-import { clone } from "../components/helpers/array"
+import { clone, keysToID, removeDeleted } from "../components/helpers/array"
+import { getBase64Path, mediaSize } from "../components/helpers/media"
 import { getActiveOutputs, setOutput } from "../components/helpers/output"
 import { loadShows } from "../components/helpers/setShow"
 import { updateOut } from "../components/helpers/showActions"
 import { _show } from "../components/helpers/shows"
 import { REMOTE } from "./../../types/Channels"
-import { GetLayout } from "./../components/helpers/get"
-import { activeProject, connections, dictionary, driveData, folders, mediaCache, openedFolders, outputs, projects, remotePassword, shows, showsCache } from "./../stores"
+import { activeProject, connections, dictionary, driveData, folders, openedFolders, outLocked, outputs, projects, remotePassword, shows, showsCache, styles } from "./../stores"
 import { sendData } from "./sendData"
+import { uid } from "uid"
+import { clearAll } from "../components/output/clear"
 
 // REMOTE
 
+let currentOut: string = ""
 export const receiveREMOTE: any = {
     PASSWORD: (msg: any) => {
         msg.data = {
@@ -20,6 +23,8 @@ export const receiveREMOTE: any = {
         if (msg.data.password) return msg
 
         connections.update((a: any) => {
+            if (!a.REMOTE) a.REMOTE = {}
+            if (!a.REMOTE[msg.id]) a.REMOTE[msg.id] = {}
             a.REMOTE[msg.id].entered = true
             return a
         })
@@ -34,7 +39,8 @@ export const receiveREMOTE: any = {
         if (get(remotePassword).length && msg.data !== get(remotePassword)) return { id: msg.id, channel: "ERROR", data: "wrongPass" }
 
         connections.update((a: any) => {
-            console.log(a, msg.id)
+            if (!a.REMOTE) a.REMOTE = {}
+            if (!a.REMOTE[msg.id]) a.REMOTE[msg.id] = {}
             a.REMOTE[msg.id].entered = true
             return a
         })
@@ -55,7 +61,7 @@ export const receiveREMOTE: any = {
         console.log(msg)
 
         await loadShows([showID])
-        msg.data = clone({ ...convertBackgrounds(get(showsCache)[showID]), id: showID })
+        msg.data = clone({ ...(await convertBackgrounds(get(showsCache)[showID])), id: showID })
         // send(REMOTE, ["MEDIA"], { media: msg.data.media })
 
         if (msg.id) {
@@ -70,44 +76,57 @@ export const receiveREMOTE: any = {
         return msg
     },
     OUT: async (msg: any) => {
+        if (get(outLocked)) return
+        // set id because convertBackgrounds might use a long time
+        let currentId = uid(5)
+        currentOut = currentId
+
         let currentOutput: any = get(outputs)[getActiveOutputs()[0]]
         let out: any = currentOutput?.out?.slide || null
         let id: string = ""
 
         if (msg.data === "clear") {
-            setOutput("slide", null)
-            setOutput("background", null)
-            setOutput("overlays", [])
-            // setOutput("audio", [])
-            // setOutput("transition", null)
+            clearAll()
+            return
         } else if (msg.data?.id) {
             id = msg.data.id
             await loadShows([id])
-            let layout = GetLayout(id)
+
+            let layout = _show(id).layouts("active").ref()[0]
             if (msg.data.index < layout.length && msg.data.index >= 0) {
-                updateOut(msg.data.id, msg.data.index, _show(msg.data.id).layouts([msg.data.layout]).ref()[0])
+                updateOut(
+                    msg.data.id,
+                    msg.data.index,
+                    _show(msg.data.id)
+                        .layouts(msg.data.layout ? [msg.data.layout] : "active")
+                        .ref()[0]
+                )
                 setOutput("slide", msg.data)
             }
-            msg.data = null
+
+            return
         } else if (msg.data !== null && msg.data !== undefined && out) {
             id = out.id
             console.log(msg.data)
 
-            let layout = GetLayout(id)
+            let layout = _show(id).layouts("active").ref()[0]
             if (msg.data < layout.length && msg.data >= 0) {
                 let newOutSlide: any = { ...out, index: msg.data }
                 setOutput("slide", newOutSlide)
             }
             msg.data = null
         } else {
-            msg.data = { slide: out ? out.index : null, layout: out?.layout || null }
+            let styleRes = currentOutput?.style ? get(styles)[currentOutput?.style]?.resolution : null
+            msg.data = { slide: out ? out.index : null, layout: out?.layout || null, styleRes }
             // && out.id !== oldOutSlide
             if (out && out.id !== "temp") {
                 id = out.id
                 oldOutSlide = id
-                msg.data.show = convertBackgrounds(get(showsCache)[id])
+                msg.data.show = await convertBackgrounds(get(showsCache)[id])
                 msg.data.show.id = id
             }
+
+            if (currentOut !== currentId) return
         }
         if (id.length && msg.id) {
             connections.update((a) => {
@@ -121,7 +140,7 @@ export const receiveREMOTE: any = {
         return msg
     },
     PROJECTS: (msg: any) => {
-        msg.data = get(projects)
+        msg.data = removeDeleted(keysToID(get(projects)))
         return msg
     },
 }
@@ -131,12 +150,13 @@ export function initializeRemote(id: string) {
     console.log(id)
     window.api.send(REMOTE, { channel: "ACCESS" })
 
-    sendData(REMOTE, { channel: "PROJECTS", data: get(projects) })
+    sendData(REMOTE, { channel: "PROJECTS", data: removeDeleted(keysToID(get(projects))) })
     window.api.send(REMOTE, { channel: "FOLDERS", data: { folders: get(folders), opened: get(openedFolders) } })
     window.api.send(REMOTE, { channel: "PROJECT", data: get(activeProject) })
 
     let currentOutput: any = get(outputs)[getActiveOutputs()[0]]
-    let out: any = { slide: currentOutput?.out?.slide ? currentOutput.out.slide.index : null, layout: currentOutput.out?.slide?.layout || null }
+    let styleRes = currentOutput?.style ? get(styles)[currentOutput?.style]?.resolution : null
+    let out: any = { slide: currentOutput?.out?.slide ? currentOutput.out.slide.index : null, layout: currentOutput.out?.slide?.layout || null, styleRes }
     if (out.slide !== null) {
         oldOutSlide = out.slide.id
         out.show = get(showsCache)[oldOutSlide]
@@ -144,146 +164,21 @@ export function initializeRemote(id: string) {
     window.api.send(REMOTE, { channel: "OUT", data: out })
 }
 
-// async function getRemote(msg: ClientMessage) {
-//   // let initialize: ClientMessage = {
-//   //   id: msg.id,
-//   //   channel: "DATA",
-//   //   data: {
-//   //     name: get(name) || "Computer",
-//   //     lang: get(language),
-//   //     // activeShow: get(activeShow),
-//   //     // activeProject: get(activeProject),
-//   //     // projects: get(projects),
-//   //     // folders: get(folders),
-//   //   },
-//   // }
-//   // window.api.send(REMOTE, initialize)
-//   // window.api.send(REMOTE, { id: msg.id, channel: "ACTIVE_SHOW", data: "" })
-//   // window.api.send(REMOTE, { id: msg.id, channel: "PROJECT", data: "" })
-//   // window.api.send(REMOTE, { id: msg.id, channel: "PROJECTS", data: "" })
-//   // window.api.send(REMOTE, { id: msg.id, channel: "FOLDERS", data: "" })
-//   switch (msg.channel) {
-//     case "PASSWORD":
-//       msg.data = { dictionary: get(dictionary) }
-//       msg.data.password = get(remotePassword).length ? true : false
-//       if (!msg.data.password) {
-//         // msg = { id: msg.id, channel: "SHOWS_CACHE", data: filterObjectArray(get(showsCache), ["name", "private", "category", "timestamps"]) }
-//         msg = { id: msg.id, channel: "SHOWS", data: get(shows) }
-
-//         sendData(REMOTE, { id: msg.id, channel: "PROJECTS", data: get(projects) })
-//         // window.api.send(REMOTE, { id: msg.id, channel: "SHOWS", data: get(shows) })
-//         window.api.send(REMOTE, { id: msg.id, channel: "FOLDERS", data: get(folders) })
-//         window.api.send(REMOTE, { id: msg.id, channel: "PROJECT", data: get(activeProject) })
-
-//         let out: any = { slide: get(outSlide) ? get(outSlide)!.index : null, layout: get(outSlide)?.layout || null }
-//         if (out.slide !== null) {
-//           oldOutSlide = get(outSlide)!.id
-//           out.show = get(showsCache)[oldOutSlide]
-//         }
-//         window.api.send(REMOTE, { id: msg.id, channel: "OUT", data: out })
-//       }
-//       break
-//     case "ACCESS":
-//       if (!get(remotePassword).length || msg.data === get(remotePassword)) {
-//         // msg = { id: msg.id, channel: "SHOWS_CACHE", data: filterObjectArray(get(showsCache), ["name", "private", "category", "timestamps"]) }
-//         msg = { id: msg.id, channel: "SHOWS", data: get(shows) }
-
-//         sendData(REMOTE, { id: msg.id, channel: "PROJECTS", data: get(projects) })
-//         window.api.send(REMOTE, { id: msg.id, channel: "FOLDERS", data: { folders: get(folders), opened: get(openedFolders) } })
-//         window.api.send(REMOTE, { id: msg.id, channel: "PROJECT", data: get(activeProject) })
-
-//         let out: any = { slide: get(outSlide) ? get(outSlide)!.index : null, layout: get(outSlide)?.layout || null }
-//         if (out.slide !== null) {
-//           oldOutSlide = get(outSlide)!.id
-//           out.show = get(showsCache)[oldOutSlide]
-//         }
-//         window.api.send(REMOTE, { id: msg.id, channel: "OUT", data: out })
-//       } else msg = { id: msg.id, channel: "ERROR", data: "wrongPass" }
-//       break
-//     // case "SHOWS":
-//     //   msg.data: filterObjectArray(get(shows), ["name"])
-//     //   break
-//     case "SHOW":
-//       // msg.data = filterObjectArray(get(shows)[msg.data], [""])
-//       let showID: string = msg.data
-//       console.log(msg)
-
-//       await loadShows([showID])
-//       msg.data = { id: showID, ...get(showsCache)[showID] }
-
-//       if (msg.id) {
-//         connections.update((a) => {
-//           if (!a.REMOTE) a.REMOTE = {}
-//           if (!a.REMOTE[msg.id!]) a.REMOTE[msg.id!] = {}
-//           a.REMOTE[msg.id!].active = showID
-//           return a
-//         })
-//       }
-//       break
-//     case "OUT":
-//       let out = get(outSlide)
-//       let id: string = ""
-//       if (msg.data === "clear") {
-//         outSlide.set(null)
-//       } else if (msg.data?.id) {
-//         id = msg.data.id
-//         await loadShows([id])
-//         let layout = GetLayout(id)
-//         if (msg.data.index < layout.length && msg.data.index >= 0) outSlide.update(() => msg.data)
-//         msg.data = null
-//       } else if (msg.data !== null && msg.data !== undefined && out) {
-//         id = out.id
-//         let layout = GetLayout(id)
-//         if (msg.data < layout.length && msg.data >= 0) {
-//           outSlide.update((o) => {
-//             o!.index = msg.data
-//             return o
-//           })
-//         }
-//         msg.data = null
-//       } else {
-//         msg.data = { slide: out ? out.index : null, layout: out?.layout || null }
-//         if (out && out.id !== "temp" && out.id !== oldOutSlide) {
-//           id = out.id
-//           oldOutSlide = id
-//           msg.data.show = get(showsCache)[id]
-//           msg.data.show.id = id
-//         }
-//       }
-//       if (id.length && msg.id) {
-//         connections.update((a) => {
-//           if (!a.REMOTE) a.REMOTE = {}
-//           if (!a.REMOTE[msg.id!]) a.REMOTE[msg.id!] = {}
-//           a.REMOTE[msg.id!].active = id
-//           return a
-//         })
-//       }
-//       break
-//     case "PROJECTS":
-//       // msg.data = filterObjectArray(get(projects), ["name", "parent", "shows"])
-//       msg.data = get(projects)
-//       break
-//     // case "PROJECT":
-//     //   msg.data = filterObjectArray(get(projects), ["name", "parent"])
-//     //   break
-//   }
-//   return msg
-// }
-
-export function convertBackgrounds(show) {
-    if (!show) return
+export async function convertBackgrounds(show) {
+    if (!show) return {}
 
     show = clone(show)
     // let media = {}
-    Object.keys(show.media).map((id) => {
-        let path = show.media[id].path
-        let cloudId = get(driveData).mediaId
-        if (cloudId && cloudId !== "default") path = show.media[id].cloud?.[cloudId] || path
+    await Promise.all(
+        Object.keys(show.media || {}).map(async (id) => {
+            let path = show.media[id].path
+            let cloudId = get(driveData).mediaId
+            if (cloudId && cloudId !== "default") path = show.media[id].cloud?.[cloudId] || path
 
-        let cachedImage: any = get(mediaCache)[path]
-        if (cachedImage) show.media[id].path = cachedImage.data // "data:image/png;base64," +
-        // let path = await toBase64(path)
-    })
+            let base64Path: string = await getBase64Path(path, mediaSize.slideSize)
+            if (base64Path) show.media[id].path = base64Path
+        })
+    )
 
     return show
 }

@@ -6,43 +6,51 @@
     import TextInput from "../../inputs/TextInput.svelte"
     import Center from "../../system/Center.svelte"
     import Checkbox from "../../inputs/Checkbox.svelte"
-    import { clone, keysToID } from "../../helpers/array"
+    import { clone, keysToID, sortByName } from "../../helpers/array"
     import Icon from "../../helpers/Icon.svelte"
     import CombinedInput from "../../inputs/CombinedInput.svelte"
+    import { formatSearch, showSearch } from "../../../utils/search"
 
     $: sortedShows = $sortedShowsList
-    $: privateShows = keysToID($shows)
-        .filter((a) => a.private === true)
-        .sort((a, b) => a.name.localeCompare(b.name))
+    $: privateShows = sortByName(keysToID($shows).filter((a) => a.private === true))
 
     $: defaultShows = clone([...(showPrivate ? privateShows : []), ...sortedShows])
     $: if (defaultShows) search()
 
     $: active = $popupData.active || ""
 
-    let searchedShows = defaultShows
+    let searchedShows = clone(defaultShows)
     let searchValue = ""
+    let previousSearchValue: string = ""
     function search(e: any = null) {
-        searchValue = e?.target?.value?.toLowerCase() || ""
+        searchValue = formatSearch(e?.target?.value || "")
 
         if (searchValue.length < 2) {
-            searchedShows = defaultShows
+            searchedShows = clone(defaultShows)
             return
         }
 
-        searchedShows = defaultShows.filter((a) => searchValue.split(" ").find((value) => a.name.toLowerCase().includes(value)))
+        let currentShowsList = searchedShows
+        // reset if search value changed
+        if (!searchValue.includes(previousSearchValue)) currentShowsList = clone(defaultShows)
+
+        searchedShows = showSearch(searchValue, currentShowsList)
+        if (searchValue.length > 15 && searchedShows.length > 50) searchedShows = searchedShows.slice(0, 50)
+        if (searchValue.length > 30 && searchedShows.length > 30) searchedShows = searchedShows.slice(0, 30)
+
+        previousSearchValue = searchValue
     }
 
     function selectShow(show: any) {
         if ($popupData.action !== "select_show") return
 
-        activePopup.set(null)
-
         if ($popupData.trigger) {
             $popupData.trigger(show.id)
         } else {
-            popupData.set({ ...$popupData, id: show.id })
+            popupData.set({ ...$popupData, showId: show.id })
         }
+
+        activePopup.set($popupData.revert || null)
     }
 
     let showPrivate = false

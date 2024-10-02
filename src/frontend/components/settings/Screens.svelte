@@ -1,15 +1,17 @@
 <script lang="ts">
+    import { onDestroy } from "svelte"
     import { MAIN, OUTPUT } from "../../../types/Channels"
     import { activePopup, alertMessage, currentOutputSettings, outputDisplay, outputs } from "../../stores"
-    import { receive, send } from "../../utils/request"
+    import { destroy, receive, send } from "../../utils/request"
+    import Icon from "../helpers/Icon.svelte"
     import T from "../helpers/T.svelte"
+    import Button from "../inputs/Button.svelte"
+    import { keysToID, sortByName } from "../helpers/array"
 
     export let activateOutput: boolean = false
 
     let options: any[] = []
-    $: options = Object.entries($outputs)
-        .map(([id, a]) => ({ id, ...a }))
-        .sort((a, b) => a.name.localeCompare(b.name))
+    $: options = sortByName(keysToID($outputs))
     $: if (options.length && (!$currentOutputSettings || !$outputs[$currentOutputSettings])) currentOutputSettings.set(options[0].id)
 
     let screens: any[] = []
@@ -32,32 +34,38 @@
 
     let totalScreensWidth: number = 0
 
+    let listenerId = "SCREENS"
     send(MAIN, ["GET_DISPLAYS"])
     // send(MAIN, ["GET_SCREENS"])
-    receive(MAIN, {
-        GET_DISPLAYS: (d: any) => {
-            // d.push(fakeScreen0)
-            // d.push(fakeScreen)
-            // d.push(fakeScreen2)
-            // d.push(fakeScreen3)
+    receive(
+        MAIN,
+        {
+            GET_DISPLAYS: (d: any) => {
+                // d.push(fakeScreen0)
+                // d.push(fakeScreen)
+                // d.push(fakeScreen2)
+                // d.push(fakeScreen3)
 
-            let sortedScreens = d.sort(sortScreensByPosition)
-            screens = sortedScreens.sort(internalFirst)
+                let sortedScreens = d.sort(sortScreensByPosition)
+                screens = sortedScreens.sort(internalFirst)
 
-            let negativeWidth = screens.reduce((value, current) => (current.bounds.x < 0 ? value + current.bounds.width : value), 0)
-            let positiveWidth = screens.reduce((value, current) => (current.bounds.x >= 0 ? value + current.bounds.width : value), 0)
-            totalScreensWidth = (positiveWidth - negativeWidth) / 2
+                let negativeWidth = screens.reduce((value, current) => (current.bounds.x < 0 ? value + current.bounds.width : value), 0)
+                let positiveWidth = screens.reduce((value, current) => (current.bounds.x >= 0 ? value + current.bounds.width : value), 0)
+                totalScreensWidth = (positiveWidth - negativeWidth) / 2
+            },
+            SET_SCREEN: (d: any) => {
+                if (currentScreen.screen) return
+
+                outputs.update((a) => {
+                    a[screenId!].screen = d.id.toString()
+                    return a
+                })
+            },
+            // GET_SCREENS: (d: any) => (screens = d),
         },
-        SET_SCREEN: (d: any) => {
-            if (currentScreen.screen) return
-
-            outputs.update((a) => {
-                a[screenId!].screen = d.id.toString()
-                return a
-            })
-        },
-        // GET_SCREENS: (d: any) => (screens = d),
-    })
+        listenerId
+    )
+    onDestroy(() => destroy(MAIN, listenerId))
 
     // const fakeScreen0 = {
     //     bounds: { x: -864 - 1536, y: -452, width: 1536, height: 1536 },
@@ -96,11 +104,13 @@
         let bounds = e.detail.bounds
         let keyOutput = currentScreen.keyOutput
         outputs.update((a) => {
+            if (!a[screenId!]) return a
+
             a[screenId!].bounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
             a[screenId!].screen = e.detail.id.toString()
             // a[screenId!].kiosk = true
 
-            if (keyOutput) {
+            if (keyOutput && a[keyOutput]) {
                 a[keyOutput].bounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
                 a[keyOutput].screen = e.detail.id.toString()
             }
@@ -126,17 +136,43 @@
             alertMessage.set("")
         }
     }
+
+    function identifyScreens() {
+        send(OUTPUT, ["IDENTIFY_SCREENS"], screens)
+    }
 </script>
+
+<p style="margin-bottom: 10px;"><T id="settings.select_display" /></p>
+<Button on:click={() => activePopup.set("change_output_values")} style="width: 100%;" dark center>
+    <Icon id="screen" right />
+    <p><T id="settings.manual_input_hint" /></p>
+</Button>
+
+<Button on:click={identifyScreens} style="width: 100%;" dark center>
+    <Icon id="search" right />
+    <p><T id="settings.identify_screens" /></p>
+</Button>
+
+<br />
 
 <div class="content">
     {#if screens.length}
         <div class="screens" style="transform: translateX(-{totalScreensWidth}px)">
+            {#if !currentScreen.screen || !screens.find((a) => a.id.toString() === currentScreen.screen)}
+                <div class="screen noClick" style="width: {currentScreen.bounds.width}px;height: {currentScreen.bounds.height}px;left: {currentScreen.bounds.x}px;top: {currentScreen.bounds.y}px;">
+                    <!-- Current screen position -->
+                </div>
+            {/if}
+
             {#each screens as screen, i}
                 <div
                     class="screen"
+                    class:disabled={currentScreen?.forcedResolution}
                     class:active={$outputs[screenId || ""]?.screen === screen.id.toString()}
                     style="width: {screen.bounds.width}px;height: {screen.bounds.height}px;left: {screen.bounds.x}px;top: {screen.bounds.y}px;"
-                    on:click={() => changeOutputScreen({ detail: { id: screen.id, bounds: screen.bounds } })}
+                    on:click={() => {
+                        if (!currentScreen?.forcedResolution) changeOutputScreen({ detail: { id: screen.id, bounds: screen.bounds } })
+                    }}
                 >
                     {i + 1}
                 </div>
@@ -162,7 +198,7 @@
         margin-top: auto; */
         position: absolute;
         left: 50%;
-        top: calc(50% + 200px);
+        top: calc(50% + 350px);
         transform: translateX(-1080px);
 
         /* width: 30%;
@@ -181,16 +217,28 @@
 
         background-color: var(--primary);
         outline: 40px solid var(--primary-lighter);
-        cursor: pointer;
         transition: background-color 0.1s;
     }
 
-    .screen:hover {
+    .screen.noClick {
+        opacity: 0.5;
+        pointer-events: none;
+        outline: 40px solid var(--secondary);
+    }
+
+    .screen:hover:not(.disabled):not(.noClick) {
         background-color: var(--primary-lighter);
+        cursor: pointer;
     }
 
     .screen.active {
-        background-color: var(--secondary);
-        color: var(--secondary-text);
+        /* background-color: var(--secondary);
+        color: var(--secondary-text); */
+        outline: 40px solid var(--secondary);
+        z-index: 1;
+    }
+
+    .screen.disabled {
+        opacity: 0.5;
     }
 </style>

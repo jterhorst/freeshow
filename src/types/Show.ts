@@ -6,8 +6,11 @@ export interface Shows {
 
 export interface Show {
     name: string
-    private?: boolean
+    id?: string // this id should not be stored (but often used in the program as a temporary value)
+    private?: boolean // hide from drawer
+    locked?: boolean // disable edits
     category: null | ID
+    quickAccess?: any
     reference?: {
         type: "calendar" | "scripture"
         data: any
@@ -31,6 +34,7 @@ export interface Show {
         override: boolean
         display: string
         template: string
+        tags?: string[]
     }
     meta: {
         title?: string
@@ -41,6 +45,7 @@ export interface Show {
         copyright?: string
         CCLI?: string
         year?: string
+        key?: string
     }
     slides: { [key: ID]: Slide }
     layouts: { [key: ID]: Layout }
@@ -59,6 +64,7 @@ export interface Slide {
     color: null | string
     globalGroup?: string
     settings: {
+        template?: string
         background?: boolean
         color?: string
         resolution?: Resolution
@@ -73,7 +79,8 @@ export interface Item {
     lines?: Line[]
     list?: List
     auto?: boolean
-    autoFontSize?: number
+    textFit?: string // auto size text fix option (default: shrinkToFit)
+    autoFontSize?: number // only used to store the calculated auto size text size
     style: string
     align?: string
     specialStyle?: any // line gap && line background
@@ -90,13 +97,18 @@ export interface Item {
     fit?: string
     filter?: string
     flipped?: boolean
+    flippedY?: boolean // media item
+    muted?: boolean // media item
     variable?: any
     web?: any
+    tracker?: any // slide progress tracker item data
     bindings?: string[] // bind item to stage or an output
     actions?: any // showTime | hideTime
     chords?: any
     scrolling?: Scrolling
     visualizer?: any
+    captions?: any
+    language?: string // used to store auto localized text
     // media: fit, startAt, endAt
     // tag?: string; // p, div????
 }
@@ -140,6 +152,7 @@ export interface Mirror {
     show?: string
     stage?: string
     enableStage?: boolean
+    nextSlide?: boolean
     useSlideIndex?: boolean
     index?: number
 }
@@ -149,6 +162,7 @@ export interface Line {
     text: {
         value: string
         style: string
+        customType?: string // "disableTemplate"
     }[]
     chords?: Chords[]
 }
@@ -182,29 +196,41 @@ export interface SlideData {
     parent?: ID // layout ref
     children?: any // layout slide
     color?: null | string
-    // TODO: this is next slide timer
-    nextTimer?: number
+    nextTimer?: number // next slide timer
     transition?: Transition
     filterEnabled?: ["background", "foreground"]
     filter?: string
-    end?: boolean
+    end?: boolean // go to start
     timer?: number
     background?: string // set backgorund action?
     overlays?: string[]
     audio?: string[]
 
     actions?: {
-        clearBackground?: boolean
-        clearOverlays?: boolean
-        clearAudio?: boolean
+        // ...
+        slideActions?: any[]
     }
     // actions?: {} // to begininng / index, clear (all), start timer, start audio/music ++
+    bindings?: string[] // bind slide to an output
 }
 
 export interface Transition {
     type: TransitionType
     duration: number
     easing: string
+    delay?: number // item in/out wait
+    custom?: any // e.g. transition direction
+
+    between?: TransitionData
+    in?: TransitionData
+    out?: TransitionData
+}
+
+export interface TransitionData {
+    type: TransitionType
+    duration: number
+    easing: string
+    delay?: number // item in/out wait
 }
 
 export interface Media {
@@ -217,24 +243,34 @@ export interface Media {
     muted?: boolean
     loop?: boolean
     filters?: string
+    base64?: string // saving media data
     cloud?: { [key: string]: string }
 }
 
 export interface Midi {
     name: string
-    input?: string
-    output?: string
-    action?: string
-    actionData?: any
-    type: "noteon" | "noteoff" | "cc"
-    values: {
-        note: number
-        velocity: number
-        channel: number
+    triggers: string[]
+    actionValues?: any[]
+    // action?: string
+    // actionData?: any
+    shows?: any[] // ??
+    customActivation?: string
+    keypressActivate?: string
+    midiEnabled?: boolean
+    midi?: {
+        input?: string
+        output?: string
+        type: "noteon" | "noteoff" | "cc"
+        values: {
+            note: number
+            velocity: number
+            channel: number
+        }
     }
 }
 
 export interface MidiIn extends Midi {
+    enabled?: boolean
     shows: {
         id: string
         // layoutId: string
@@ -263,7 +299,16 @@ export interface Template {
     name: string
     color: null | string
     category: null | string
+    settings?: TemplateSettings
     items: Item[]
+}
+export interface TemplateSettings {
+    resolution?: Resolution
+    backgroundColor?: string
+    backgroundPath?: string
+    overlayId?: string
+    firstSlideTemplate?: string
+    actions?: any[]
 }
 
 // output
@@ -272,13 +317,17 @@ export interface OutBackground {
     id?: ID
     path?: string
     name?: string
+    type?: MediaType
+    // video / player
     startAt?: number
     muted?: boolean
     loop?: boolean
+    // media
     filter?: string
     flipped?: boolean
-    // name?: string
-    type?: MediaType
+    flippedY?: boolean
+    title?: string // player
+    cameraGroup?: string // camera
 }
 
 export interface OutSlide {
@@ -288,8 +337,12 @@ export interface OutSlide {
     tempItems?: Item[]
     line?: number
     // layout: ID ?
-    // type?: ShowType
-    // private?: boolean
+    name?: string // mostly used for PDFs
+    type?: ShowType // mostly used for PDFs
+    page?: number // PDF
+    pages?: number // PDF
+    viewport?: { width: number; height: number } // PDF
+    screen?: { id: string; name?: string } // PPT
 }
 
 export interface OutTransition {
@@ -301,7 +354,7 @@ export interface OutTransition {
 // types
 
 export type ID = string
-export type ItemType = "text" | "list" | "media" | "camera" | "timer" | "clock" | "events" | "variable" | "web" | "mirror" | "icon" | "visualizer" // "shape" | "video" | "media" | "camera"
-export type ShowType = "show" | "image" | "video" | "audio" | "player" | "section" // "private"
+export type ItemType = "text" | "list" | "media" | "camera" | "timer" | "clock" | "events" | "variable" | "web" | "mirror" | "icon" | "slide_tracker" | "visualizer" | "captions" // "shape" | "video" | "media" | "camera"
+export type ShowType = "show" | "image" | "video" | "audio" | "player" | "section" | "pdf" | "ppt" // "private"
 export type TransitionType = "none" | "blur" | "fade" | "crossfade" | "fly" | "scale" | "slide" | "spin"
 export type MediaType = "media" | "video" | "image" | "screen" | "camera" | "player" | "audio"

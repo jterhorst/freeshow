@@ -1,7 +1,7 @@
 <script lang="ts">
     import { IMPORT } from "../../../types/Channels"
     import type { Category } from "../../../types/Tabs"
-    import { activePopup, audioFolders, categories, dictionary, drawerTabsData, labelsDisabled, mediaFolders, overlayCategories, overlays, scriptures, shows, templateCategories, templates, webFavorites } from "../../stores"
+    import { activeEdit, activePopup, audioFolders, audioPlaylists, categories, dictionary, drawerTabsData, labelsDisabled, mediaFolders, overlayCategories, scriptures, templateCategories } from "../../stores"
     import { send } from "../../utils/request"
     import { keysToID, sortObject } from "../helpers/array"
     import { history } from "../helpers/history"
@@ -9,12 +9,10 @@
     import T from "../helpers/T.svelte"
     import Button from "../inputs/Button.svelte"
     import FolderPicker from "../inputs/FolderPicker.svelte"
-    import Center from "../system/Center.svelte"
     import DropArea from "../system/DropArea.svelte"
-    import SelectElem from "../system/SelectElem.svelte"
-    import NavigationButton from "./NavigationButton.svelte"
+    import NavigationButtons from "./NavigationButtons.svelte"
 
-    export let id: "shows" | "media" | "overlays" | "audio" | "effects" | "scripture" | "calendar" | "templates" | "timers" | "web"
+    export let id: "shows" | "media" | "overlays" | "audio" | "effects" | "scripture" | "calendar" | "functions" | "templates" | "timers"
 
     interface Button extends Category {
         id: string
@@ -45,8 +43,6 @@
                 { id: "all", name: "category.all", default: true, icon: "all" },
                 { id: "unlabeled", name: "category.unlabeled", default: true, icon: "noIcon" },
                 { id: "SEPERATOR", name: "" },
-                { id: "variables", name: "tabs.variables", default: true, icon: "variable" },
-                { id: "SEPERATOR", name: "" },
                 ...(sortObject(keysToID($overlayCategories), "name") as Button[]),
             ]
         } else if (id === "templates") {
@@ -62,23 +58,30 @@
                 { id: "favourites", name: "category.favourites", default: true, icon: "star" },
                 { id: "SEPERATOR", name: "" },
                 { id: "microphones", name: "live.microphones", default: true, icon: "microphone" },
+                { id: "audio_streams", name: "live.audio_streams", default: true, icon: "audio_stream" },
+                ...getAudioPlaylists($audioPlaylists),
                 { id: "SEPERATOR", name: "" },
                 ...(sortObject(keysToID($audioFolders), "name") as Button[]),
             ]
-        } else if (id === "effects") {
-            buttons = [{ id: "effects", name: "tabs.effects", default: true, icon: "effects" }]
         } else if (id === "scripture") {
             buttons = getBibleVersions()
         } else if (id === "calendar") {
             buttons = [
                 { id: "event", name: "calendar.event", default: true, icon: "calendar" },
-                { id: "show", name: "calendar.show", default: true, icon: "showIcon" },
-                // TODO: split event timers to it's own space & create popup ???????
-                { id: "timer", name: "tabs.timers", default: true, icon: "timer" },
-                // TODO: all active in output, not project!!
+                { id: "action", name: "calendar.schedule_action", default: true, icon: "actions" },
+                // WIP very few tabs
             ]
-        } else if (id === "web") {
-            buttons = [...(sortObject(keysToID($webFavorites), "name") as Button[])]
+        } else if (id === "functions") {
+            buttons = [
+                { id: "actions", name: "tabs.actions", default: true, icon: "actions" },
+                { id: "SEPERATOR", name: "" },
+                { id: "timer", name: "tabs.timers", default: true, icon: "timer" },
+                { id: "variables", name: "tabs.variables", default: true, icon: "variable" },
+                { id: "triggers", name: "tabs.triggers", default: true, icon: "trigger" },
+                // WIP effects
+                // { id: "SEPERATOR", name: "" },
+                // { id: "effects", name: "tabs.effects", default: true, icon: "effects" },
+            ]
         } else {
             buttons = [
                 { id: "all", name: "category.all", default: true, icon: "all" },
@@ -87,7 +90,6 @@
         }
     }
 
-    // TODO: scroll down to selected
     $: if (buttons.length && !$drawerTabsData[id]?.activeSubTab) setSubTab(buttons[0].id)
 
     function setSubTab(tabId: string) {
@@ -102,40 +104,22 @@
     const getBibleVersions = () =>
         keysToID($scriptures)
             .map((a: any) => ({ ...a, icon: a.api ? "scripture_alt" : a.collection ? "collection" : "scripture" }))
-            .sort((a: any, b: any) => b.name.localeCompare(a.name))
+            .sort((a: any, b: any) => (b.customName || b.name).localeCompare(a.customName || a.name))
             .sort((a: any, b: any) => (a.api === true && b.api !== true ? 1 : -1))
             .sort((a: any, b: any) => (a.collection !== undefined && b.collection === undefined ? -1 : 1))
 
-    let length: any = {}
-    if (id) length = {}
-    $: {
-        let list: any[] = []
-        if (id === "shows") list = Object.values($shows).filter((a: any) => !a.private)
-        else if (id === "overlays") list = Object.values($overlays)
-        else if (id === "templates") list = Object.values($templates)
+    function getAudioPlaylists(playlistUpdater): Button[] {
+        if (!Object.keys(playlistUpdater).length) return []
 
-        let totalLength: number = 0
-        buttons.forEach((button) => {
-            length[button.id] = 0
+        let playlists = sortObject(keysToID(playlistUpdater), "name") as Button[]
+        playlists = playlists.map((a) => ({ ...a, icon: "playlist" }))
+        if (!playlists.length) return []
 
-            if (button.id === "all") {
-                length[button.id] = list.length
-                return
-            }
-
-            length[button.id] = list.filter(checkMatch).length
-            totalLength += length[button.id]
-
-            function checkMatch(a) {
-                if (button.id === "unlabeled") return a.category === null
-                return a.category === button.id
-            }
-        })
-
-        length.unlabeled += list.length - totalLength
+        return [{ id: "SEPERATOR", name: "" }, ...playlists]
     }
 
     function keydown(e: KeyboardEvent) {
+        if ($activeEdit.items.length) return
         if (!e.target?.closest(".edit") && (e.ctrlKey || e.metaKey)) {
             if (e.key === "ArrowDown") {
                 // Ctrl + Arrow Down = change active drawer sub tab
@@ -159,34 +143,21 @@
 
     let selectId: any = "category"
     $: selectId = "category_" + id
+
+    const dropAreas: (typeof id)[] = ["shows", "media", "audio", "overlays", "templates"]
 </script>
 
 <svelte:window on:keydown={keydown} />
 
 <div class="main">
     <div class="categories context #category_{id}">
-        <DropArea id="navigation" selectChildren>
-            {#key buttons}
-                {#if buttons.length}
-                    {#each buttons as category}
-                        {#if category.id === "SEPERATOR"}
-                            <hr />
-                        {:else}
-                            <SelectElem id={selectId} borders="center" trigger="column" data={category.id}>
-                                <NavigationButton {id} {category} {length} />
-                            </SelectElem>
-                        {/if}
-                    {/each}
-                {:else}
-                    <Center faded>
-                        <T id="empty.general" />
-                    </Center>
-                {/if}
-            {/key}
-            <!-- {#if id === "scripture"}
-        <a class="source" href="#void" on:click={() => window.api.send(MAIN, { channel: "URL", data: "https://scripture.api.bible/" })}> API.Bible </a>
-      {/if} -->
-        </DropArea>
+        {#if dropAreas.includes(id)}
+            <DropArea id="navigation" selectChildren>
+                <NavigationButtons {buttons} {id} {selectId} />
+            </DropArea>
+        {:else}
+            <NavigationButtons {buttons} {id} {selectId} />
+        {/if}
     </div>
     {#if id === "shows"}
         <div class="tabs">
@@ -223,7 +194,7 @@
         </div>
     {:else if id === "calendar"}
         <div class="tabs">
-            <Button on:click={() => send(IMPORT, ["calendar"], { name: "Calendar", extensions: ["ics"] })} center title={$dictionary.actions?.import}>
+            <Button on:click={() => send(IMPORT, ["calendar"], { format: { name: "Calendar", extensions: ["ics"] } })} center title={$dictionary.actions?.import}>
                 <Icon id="add" right={!$labelsDisabled} />
                 {#if !$labelsDisabled}<T id="actions.import" />{/if}
             </Button>
@@ -253,12 +224,6 @@
     .tabs {
         display: flex;
         background-color: var(--primary-darker);
-    }
-
-    hr {
-        height: 2px;
-        border: none;
-        background-color: var(--primary-lighter);
     }
 
     .source {

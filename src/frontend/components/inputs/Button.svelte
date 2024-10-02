@@ -5,6 +5,7 @@
     export let outlineColor: string | null = null
     export let outline: boolean = false
     export let title: string = ""
+    export let zoom: number = 1
     export let center: boolean = false
     export let border: boolean = false
     export let dark: boolean = false
@@ -18,19 +19,19 @@
     let timeout: any = null
     let autoHideTimeout: any = null
     function startTimer() {
-        if (!timeout && title?.length) {
-            if (autoHideTimeout) clearTimeout(autoHideTimeout)
-            timeout = setTimeout(() => {
-                showTooltip = true
-                timeout = null
+        if (timeout || !title?.length) return
 
+        if (autoHideTimeout) clearTimeout(autoHideTimeout)
+        timeout = setTimeout(() => {
+            showTooltip = true
+            timeout = null
+            if (document)
                 // hide after 5 seconds
                 autoHideTimeout = setTimeout(() => {
                     if (!timeout) showTooltip = false
                     autoHideTimeout = null
                 }, 5000)
-            }, tooltipTime)
-        }
+        }, tooltipTime)
     }
 
     $: if ($$props.disabled) hideTooltip()
@@ -46,7 +47,9 @@
         if (!title?.length) return
         startTimer()
         mouse = { x: e.clientX, y: e.clientY }
-        if (mouse.x + 250 > window.innerWidth) tooltipStyle += "transform: translateX(-100%);"
+
+        tooltipStyle = ""
+        if (mouse.x + 250 > window.innerWidth) tooltipStyle += "transform: translateX(-100%);" + (title.length > 30 ? "width: 250px;" : "white-space: nowrap;")
         if (mouse.y + 80 > window.innerHeight) tooltipStyle += "transform: translateY(-100%);"
     }
 </script>
@@ -56,6 +59,7 @@
     on:mousedown={hideTooltip}
     on:mouseleave={hideTooltip}
     id={$$props.id}
+    data-testid={$$props["data-testid"]}
     style="{outlineColor ? 'outline-offset: -2px;outline: 2px solid ' + outlineColor + ' !important;' : ''}{$$props.style || ''}"
     class:active
     class:outline
@@ -73,7 +77,7 @@
     tabindex={active ? -1 : 0}
 >
     {#if showTooltip}
-        <div class="tooltip" transition:fade={{ duration: 200 }} style="left: {mouse.x}px;top: {mouse.y}px;{tooltipStyle}">
+        <div class="tooltip" transition:fade={{ duration: 200 }} style="left: {mouse.x}px;top: {mouse.y}px;{tooltipStyle};zoom: {1 / zoom};">
             {title}
         </div>
     {/if}
@@ -93,7 +97,11 @@
         align-items: center;
         padding: 0.2em 0.8em;
 
-        transition: background-color 0.2s, border 0.2s;
+        border-radius: var(--border-radius);
+
+        transition:
+            background-color 0.2s,
+            border 0.2s;
     }
     button.dark {
         background-color: var(--primary-darker);
@@ -106,7 +114,7 @@
         text-align: center;
     }
     button.bold {
-        font-weight: bold;
+        font-weight: 600;
         letter-spacing: 0.5px;
         padding: 0.3em 0.8em;
         /* text-transform: uppercase; */
@@ -124,7 +132,7 @@
         background-color: rgb(255 0 0 / 0.3);
     }
     button.red:not(:disabled) :global(svg) {
-        fill: white;
+        fill: var(--text);
     }
 
     button:not(:disabled):not(.active) {
@@ -199,6 +207,7 @@
         position: fixed;
         background-color: var(--primary-darkest);
         border: 2px solid var(--primary-lighter);
+        border-radius: var(--border-radius);
         padding: 5px 10px;
         top: 0;
         left: 0;

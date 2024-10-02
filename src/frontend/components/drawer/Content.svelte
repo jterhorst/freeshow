@@ -1,15 +1,17 @@
 <script lang="ts">
     import { drawerTabsData } from "../../stores"
-    import Calendar from "../calendar/Calendar.svelte"
-    import Overlays from "./Overlays.svelte"
-    import Shows from "./Shows.svelte"
-    import Templates from "./Templates.svelte"
-    import Variables from "./Variables.svelte"
+    import Calendar from "./calendar/Calendar.svelte"
+    import Overlays from "./pages/Overlays.svelte"
+    import Shows from "./pages/Shows.svelte"
+    import Templates from "./pages/Templates.svelte"
+    import Triggers from "./pages/Triggers.svelte"
+    import Variables from "./pages/Variables.svelte"
     import Audio from "./audio/Audio.svelte"
     import Scripture from "./bible/Scripture.svelte"
     import Effects from "./effects/Effects.svelte"
     import Media from "./media/Media.svelte"
     import Timers from "./timers/Timers.svelte"
+    import Actions from "./pages/Actions.svelte"
 
     export let id: string
     export let bibles: any
@@ -18,26 +20,9 @@
     $: active = $drawerTabsData[id]?.activeSubTab || null
 
     let streams: any = []
-    $: {
-        if (id !== "media" || active) stopStreams()
-    }
+    $: if (id !== "media" || active) stopStreams()
+
     function stopStreams() {
-        //     // TODO: check if in output!!
-        // navigator.mediaDevices
-        //   .getUserMedia({
-        //     audio: true,
-        //     video: true,
-        //   })
-        //   .then((stream: any) => {
-        //     console.log(stream)
-        //     stream.getTracks().forEach((track: any) => {
-        //       console.log(track)
-        //       track.stop()
-        //     })
-        //   })
-
-        // console.log("STOP")
-
         streams.forEach((stream: any) => {
             stream.getTracks().forEach((track: any) => {
                 console.log(track)
@@ -53,28 +38,28 @@
         <Shows {id} {active} {searchValue} bind:firstMatch />
     {:else if id === "media"}
         <Media {active} {searchValue} bind:streams />
-    {:else if id === "overlays"}
-        {#if active === "variables"}
-            <Variables {searchValue} />
-        {:else}
-            <Overlays {active} {searchValue} />
-        {/if}
     {:else if id === "audio"}
         <Audio {active} {searchValue} />
-    {:else if id === "effects"}
-        <Effects {active} {searchValue} />
+    {:else if id === "overlays"}
+        <Overlays {active} {searchValue} />
+    {:else if id === "templates"}
+        <Templates {active} {searchValue} />
     {:else if id === "scripture"}
         <Scripture {active} bind:searchValue bind:bibles />
     {:else if id === "calendar"}
-        {#if active === "timer"}
+        <Calendar {active} {searchValue} />
+    {:else if id === "functions"}
+        {#if active === "actions"}
+            <Actions {searchValue} />
+        {:else if active === "timer"}
             <Timers {searchValue} />
-        {:else}
-            <Calendar {active} {searchValue} />
+        {:else if active === "variables"}
+            <Variables {searchValue} />
+        {:else if active === "triggers"}
+            <Triggers {searchValue} />
+        {:else if active === "effects"}
+            <Effects {active} {searchValue} />
         {/if}
-    {:else if id === "templates"}
-        <Templates {active} {searchValue} />
-        <!-- {:else if id === "web"}
-    <Web {active} {searchValue} /> -->
     {/if}
 </div>
 

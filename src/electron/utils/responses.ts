@@ -1,60 +1,74 @@
 // ----- FreeShow -----
 // Respond to messages from the frontend
 
-import { app, desktopCapturer, Display, screen, shell, systemPreferences } from "electron"
+import { app, BrowserWindow, desktopCapturer, DesktopCapturerSource, Display, screen, shell, systemPreferences } from "electron"
 import { getFonts } from "font-list"
-import fs from "fs"
+import { machineIdSync } from "node-machine-id"
 import os from "os"
 import path from "path"
-import { closeMain, mainWindow, maximizeMain, setGlobalMenu, toApp } from ".."
+import { closeMain, isProd, mainWindow, maximizeMain, setGlobalMenu, toApp } from ".."
 import { BIBLE, MAIN, SHOW } from "../../types/Channels"
 import { Show } from "../../types/Show"
+import { restoreFiles } from "../data/backup"
+import { downloadMedia } from "../data/downloadMedia"
+import { importShow } from "../data/import"
+import { convertPDFToImages } from "../data/pdfToImage"
+import { config, error_log, stores } from "../data/store"
+import { getThumbnail, getThumbnailFolderPath, saveImage } from "../data/thumbnails"
+import { OutputHelper } from "../output/OutputHelper"
 import { closeServers, startServers } from "../servers"
 import { Message } from "./../../types/Socket"
-import { restoreFiles } from "./backup"
-import { createPDFWindow, exportProject, exportTXT } from "./export"
-import { checkShowsFolder, deleteFile, doesPathExist, getDocumentsFolder, getPaths, loadFile, locateMediaFile, openSystemFolder, readFile, readFolder, renameFile, selectFilesDialog, selectFolderDialog, writeFile } from "./files"
-import { importShow } from "./import"
+import { startWebSocketAndRest, stopApiListener } from "./api"
+import {
+    bundleMediaFiles,
+    checkShowsFolder,
+    dataFolderNames,
+    deleteFile,
+    doesPathExist,
+    getDataFolder,
+    getDocumentsFolder,
+    getFileInfo,
+    getFolderContent,
+    getPaths,
+    getSimularPaths,
+    getTempPaths,
+    loadFile,
+    locateMediaFile,
+    openSystemFolder,
+    parseShow,
+    readExifData,
+    readFile,
+    readFolder,
+    renameFile,
+    selectFiles,
+    selectFilesDialog,
+    selectFolder,
+    writeFile,
+} from "./files"
+import { LyricSearch } from "./LyricSearch"
 import { closeMidiInPorts, getMidiInputs, getMidiOutputs, receiveMidi, sendMidi } from "./midi"
-import { outputWindows } from "./output"
+import checkForUpdates from "./updater"
+import { getPresentationApplications, presentationControl, startSlideshow } from "../output/ppt/presentation"
 
 // IMPORT
 export function startImport(_e: any, msg: Message) {
-    let files: string[] = selectFilesDialog("", msg.data)
+    let files: string[] = selectFilesDialog("", msg.data.format)
 
-    if ((os.platform() === "linux" && msg.channel === "pdf") || (msg.data.extensions && !files.length)) return
-    importShow(msg.channel, files || null)
-}
+    let needsFileAndNoFileSelected = msg.data.format.extensions && !files.length
+    if (needsFileAndNoFileSelected) return
 
-// EXPORT
-export function startExport(_e: any, msg: Message) {
-    if (msg.channel !== "GENERATE") return
-
-    let path: string = msg.data.path
-
-    if (!path) {
-        path = selectFolderDialog()
-        if (!path) return
-        toApp(MAIN, { channel: "EXPORT_PATH", data: path })
-    }
-
-    // WIP open in system when completed...
-
-    if (msg.data.type === "pdf") createPDFWindow(msg.data)
-    else if (msg.data.type === "txt") exportTXT(msg.data)
-    else if (msg.data.type === "project") exportProject(msg.data)
+    importShow(msg.channel, files || null, msg.data)
 }
 
 // BIBLE
 export function loadScripture(e: any, msg: Message) {
-    let bibleFolder: string = msg.path || ""
-    if (!bibleFolder) bibleFolder = getDocumentsFolder(null, "Bibles")
-    let p: string = path.resolve(bibleFolder, msg.name + ".fsb")
+    let bibleFolder: string = getDataFolder(msg.path || "", dataFolderNames.scriptures)
+    let p: string = path.join(bibleFolder, msg.name + ".fsb")
 
     let bible: any = loadFile(p, msg.id)
 
     // pre v0.5.6
-    if (bible.error) p = path.resolve(app.getPath("documents"), "Bibles", msg.name + ".fsb")
+    if (bible.error) p = path.join(app.getPath("documents"), "Bibles", msg.name + ".fsb")
     bible = loadFile(p, msg.id)
 
     if (msg.data) bible.data = msg.data
@@ -64,7 +78,7 @@ export function loadScripture(e: any, msg: Message) {
 // SHOW
 export function loadShow(e: any, msg: Message) {
     let p: string = checkShowsFolder(msg.path || "")
-    p = path.resolve(p, (msg.name || msg.id) + ".show")
+    p = path.join(p, (msg.name || msg.id) + ".show")
     let show: any = loadFile(p, msg.id)
 
     e.reply(SHOW, show)
@@ -72,62 +86,89 @@ export function loadShow(e: any, msg: Message) {
 
 // MAIN
 const mainResponses: any = {
-    GET_OS: (): any => ({ platform: os.platform(), name: os.hostname() }),
-    GET_SYSTEM_FONTS: (): void => loadFonts(),
+    // DATA
+    LOG: (data: string): void => console.log(data),
     VERSION: (): string => app.getVersion(),
-    URL: (data: string): void => openURL(data),
-    START: (data: any): void => startServers(data),
-    STOP: (): void => closeServers(),
+    IS_DEV: (): boolean => !isProd,
+    GET_OS: (): any => ({ platform: os.platform(), name: os.hostname(), arch: os.arch() }),
+    DEVICE_ID: (): string => machineIdSync(),
     IP: (): any => os.networkInterfaces(),
-    LANGUAGE: (data: any): void => setGlobalMenu(data.strings),
-    SHOWS_PATH: (): string => getDocumentsFolder(),
-    EXPORT_PATH: (): string => getDocumentsFolder(null, "Exports"),
-    SCRIPTURE_PATH: (): string => getDocumentsFolder(null, "Bibles"),
-    RECORDING_PATH: (): string => getDocumentsFolder(null, "Recordings"),
-    // READ_SAVED_CACHE: (data: any): string => readFile(path.resolve(getDocumentsFolder(null, "Saves"), data.id + ".json")),
-    DISPLAY: (): boolean => false,
-    GET_MIDI_OUTPUTS: (): string[] => getMidiOutputs(),
-    GET_MIDI_INPUTS: (): string[] => getMidiInputs(),
-    GET_SCREENS: (): void => getScreens(),
-    GET_WINDOWS: (): void => getScreens("window"),
-    GET_DISPLAYS: (): Display[] => screen.getAllDisplays(),
-    GET_PATHS: (): any => getPaths(),
-    OUTPUT: (_: any, e: any): "true" | "false" => (e.sender.id === mainWindow?.webContents.id ? "false" : "true"),
+    // APP
     CLOSE: (): void => closeMain(),
     MAXIMIZE: (): void => maximizeMain(),
     MAXIMIZED: (): boolean => !!mainWindow?.isMaximized(),
     MINIMIZE: (): void => mainWindow?.minimize(),
     FULLSCREEN: (): void => mainWindow?.setFullScreen(!mainWindow?.isFullScreen()),
-    SEARCH_LYRICS: (data: any): void => {
-        searchLyrics(data)
-    },
+    // MAIN
+    AUTO_UPDATE: (): void => checkForUpdates(),
+    GET_SYSTEM_FONTS: (data: any): void => loadFonts(data),
+    URL: (data: string): void => openURL(data),
+    LANGUAGE: (data: any): void => setGlobalMenu(data.strings),
+    GET_PATHS: (): any => getPaths(),
+    GET_TEMP_PATHS: (): any => getTempPaths(),
+    SHOWS_PATH: (): string => getDocumentsFolder(),
+    DATA_PATH: (): string => getDocumentsFolder(null, ""),
+    LOG_ERROR: (data: any) => logError(data),
+    OPEN_LOG: () => openSystemFolder(error_log.path),
+    OPEN_CACHE: () => openSystemFolder(getThumbnailFolderPath()),
+    GET_STORE_VALUE: (data: any) => getStoreValue(data),
+    SET_STORE_VALUE: (data: any) => setStoreValue(data),
+    // SHOWS
+    DELETE_SHOWS: (data: any) => deleteShowsNotIndexed(data),
+    REFRESH_SHOWS: (data: any) => refreshAllShows(data),
+    FULL_SHOWS_LIST: (data: any) => getAllShows(data),
+    // OUTPUT
+    GET_SCREENS: (): void => getScreens(),
+    GET_WINDOWS: (): void => getScreens("window"),
+    GET_DISPLAYS: (): Display[] => screen.getAllDisplays(),
+    OUTPUT: (_: any, e: any): "true" | "false" => (e.sender.id === mainWindow?.webContents.id ? "false" : "true"),
+    // MEDIA
+    GET_THUMBNAIL: (data: any): any => getThumbnail(data),
+    SAVE_IMAGE: (data: any): any => saveImage(data),
+    READ_EXIF: (data: any, e: any) => readExifData(data, e),
+    DOWNLOAD_MEDIA: (data: any) => downloadMedia(data),
+    MEDIA_BASE64: (data: any) => storeMedia(data),
+    PDF_TO_IMAGE: (data: any) => convertPDFToImages(data),
+    ACCESS_CAMERA_PERMISSION: () => getPermission("camera"),
+    ACCESS_MICROPHONE_PERMISSION: () => getPermission("microphone"),
+    ACCESS_SCREEN_PERMISSION: () => getPermission("screen"),
+    // PPT
+    SLIDESHOW_GET_APPS: () => getPresentationApplications(),
+    START_SLIDESHOW: (data: any) => startSlideshow(data),
+    PRESENTATION_CONTROL: (data: any) => presentationControl(data),
+    // SERVERS
+    START: (data: any): void => startServers(data),
+    STOP: (): void => closeServers(),
+    // WebSocket / REST
+    WEBSOCKET_START: (port: number | undefined) => startWebSocketAndRest(port),
+    WEBSOCKET_STOP: () => stopApiListener(),
+    // MIDI
+    GET_MIDI_OUTPUTS: (): string[] => getMidiOutputs(),
+    GET_MIDI_INPUTS: (): string[] => getMidiInputs(),
     SEND_MIDI: (data: any): void => {
         sendMidi(data)
     },
     RECEIVE_MIDI: (data: any): void => {
         receiveMidi(data)
     },
-    CLOSE_MIDI: (data: any): void => {
-        closeMidiInPorts(data.id)
+    CLOSE_MIDI: (data: any): void => closeMidiInPorts(data.id),
+    // LYRICS
+    GET_LYRICS: (data: any): void => {
+        getLyrics(data)
     },
-    DELETE_SHOWS: (data: any) => deleteShowsNotIndexed(data),
-    REFRESH_SHOWS: (data: any) => refreshAllShows(data),
-    FULL_SHOWS_LIST: (data: any) => getAllShows(data),
-    ACCESS_CAMERA_PERMISSION: () => {
-        if (process.platform !== "darwin") return
-        systemPreferences.askForMediaAccess("camera")
+    SEARCH_LYRICS: (data: any): void => {
+        searchLyrics(data)
     },
-    ACCESS_MICROPHONE_PERMISSION: () => {
-        if (process.platform !== "darwin") return
-        systemPreferences.askForMediaAccess("microphone")
-    },
-    ACCESS_SCREEN_PERMISSION: () => {
-        if (process.platform !== "darwin") return
-        systemPreferences.getMediaAccessStatus("screen")
-    },
-    RESTORE: (a: any) => restoreFiles(a),
-    SYSTEM_OPEN: (a: any) => openSystemFolder(a),
-    LOCATE_MEDIA_FILE: (a: any) => locateMediaFile(a),
+    // FILES
+    RESTORE: (data: any) => restoreFiles(data),
+    SYSTEM_OPEN: (data: any) => openSystemFolder(data),
+    LOCATE_MEDIA_FILE: (data: any) => locateMediaFile(data),
+    GET_SIMULAR: (data: any) => getSimularPaths(data),
+    BUNDLE_MEDIA_FILES: (data: any) => bundleMediaFiles(data),
+    FILE_INFO: (data: any, e: any) => getFileInfo(data, e),
+    READ_FOLDER: (data: any) => getFolderContent(data),
+    OPEN_FOLDER: (data: any, e: any) => selectFolder(data, e),
+    OPEN_FILE: (data: any, e: any) => selectFiles(data, e),
 }
 
 export function receiveMain(e: any, msg: Message) {
@@ -162,12 +203,16 @@ function deleteShowsNotIndexed(data: any) {
     toApp("MAIN", { channel: "DELETE_SHOWS", data: { deleted } })
 }
 
-function getAllShows(data: any) {
-    let filesInFolder: string[] = readFolder(data.path)
+export function getAllShows(data: any) {
+    if (!doesPathExist(data.path)) return []
+
+    let filesInFolder: string[] = readFolder(data.path).filter((a) => a.includes(".show") && a.length > 5)
     return filesInFolder
 }
 
 function refreshAllShows(data: any) {
+    if (!doesPathExist(data.path)) return
+
     // list all shows in folder
     let filesInFolder: string[] = readFolder(data.path)
     if (!filesInFolder.length) return
@@ -179,12 +224,8 @@ function refreshAllShows(data: any) {
         if (!name.includes(".show")) return
 
         let p: string = path.join(data.path, name)
-        let show = null
-        try {
-            show = JSON.parse(readFile(p) || "{}")
-        } catch (error) {
-            console.error("Error parsing show " + name) //  + ":", error
-        }
+        let show = parseShow(readFile(p))
+
         if (!show || !show[1]) return
 
         newShows[show[0]] = trimShow({ ...show[1], name: name.replace(".show", "") })
@@ -205,7 +246,7 @@ export function renameShows(shows: any, path: string) {
 }
 
 // WIP duplicate of setShow.ts
-function trimShow(showCache: Show) {
+export function trimShow(showCache: Show) {
     let show: any = {}
     if (!showCache) return show
 
@@ -213,8 +254,10 @@ function trimShow(showCache: Show) {
         name: showCache.name,
         category: showCache.category,
         timestamps: showCache.timestamps,
+        quickAccess: showCache.quickAccess || {},
     }
     if (showCache.private) show.private = true
+    if (showCache.locked) show.locked = true
 
     return show
 }
@@ -226,51 +269,128 @@ export const openURL = (url: string) => {
 }
 
 // GET_SYSTEM_FONTS
-function loadFonts() {
+function loadFonts(data: any) {
     getFonts({ disableQuoting: true })
-        .then((fonts: string[]) => toApp(MAIN, { channel: "GET_SYSTEM_FONTS", data: fonts }))
+        .then((fonts: string[]) => toApp(MAIN, { channel: "GET_SYSTEM_FONTS", data: { ...data, fonts } }))
         .catch((err: any) => console.log(err))
 }
 
 // SEARCH_LYRICS
 async function searchLyrics({ artist, title }: any) {
-    const Genius = require("genius-lyrics")
-    const Client = new Genius.Client()
+    const songs = await LyricSearch.search(artist, title)
+    toApp("MAIN", { channel: "SEARCH_LYRICS", data: songs })
+}
 
-    const songs = await Client.songs.search(title + artist)
-    const lyrics = songs[0] ? await songs[0].lyrics() : ""
+// GET_LYRICS
+async function getLyrics({ song }: any) {
+    const lyrics = await LyricSearch.get(song)
+    toApp("MAIN", { channel: "GET_LYRICS", data: { lyrics, source: song.source } })
+}
 
-    toApp("MAIN", { channel: "SEARCH_LYRICS", data: { lyrics } })
+// GET DEVICE MEDIA PERMISSION
+function getPermission(id: "camera" | "microphone" | "screen") {
+    if (process.platform !== "darwin") return
+
+    if (id === "screen") systemPreferences.getMediaAccessStatus(id)
+    else systemPreferences.askForMediaAccess(id)
 }
 
 // GET_SCREENS | GET_WINDOWS
 function getScreens(type: "window" | "screen" = "screen") {
-    desktopCapturer.getSources({ types: [type] }).then(async (sources) => {
-        const screens: any[] = []
-        // console.log(sources)
+    desktopCapturer.getSources({ types: [type] }).then((sources) => {
+        let screens: any[] = []
         sources.map((source) => screens.push({ name: source.name, id: source.id }))
-        // , display_id: source.display_id
-
-        // add FreeShow windows
-        if (type === "window") {
-            Object.values({ main: mainWindow, ...outputWindows }).forEach((window: any) => {
-                let mediaId = window?.getMediaSourceId()
-                if (!sources.find((a) => a.id === mediaId)) screens.push({ name: window?.getTitle(), id: mediaId })
-            })
-        }
+        if (type === "window") screens = addFreeShowWindows(screens, sources)
 
         toApp(MAIN, { channel: type === "window" ? "GET_WINDOWS" : "GET_SCREENS", data: screens })
     })
+
+    function addFreeShowWindows(screens: any[], sources: DesktopCapturerSource[]) {
+        const windows: BrowserWindow[] = []
+        OutputHelper.getAllOutputs().forEach(([output]: any) => {
+            output.window && windows.push(output.window)
+        })
+        Object.values({ main: mainWindow, ...windows }).forEach((window: any) => {
+            let mediaId = window?.getMediaSourceId()
+            let windowsAlreadyExists = sources.find((a: any) => a.id === mediaId)
+            if (windowsAlreadyExists) return
+
+            screens.push({ name: window?.getTitle(), id: mediaId })
+        })
+
+        return screens
+    }
 }
 
 // RECORDER
+// only open once per session
+let systemOpened: boolean = false
 export function saveRecording(_: any, msg: any) {
-    let folder: string = msg.path || ""
-    if (!folder) folder = getDocumentsFolder(null, "Recordings")
-    else if (!doesPathExist(folder)) folder = fs.mkdirSync(folder, { recursive: true }) || folder
-
-    let p: string = path.resolve(folder, msg.name)
+    let folder: string = getDataFolder(msg.path || "", dataFolderNames.recordings)
+    let p: string = path.join(folder, msg.name)
 
     const buffer = Buffer.from(msg.blob)
     writeFile(p, buffer)
+
+    if (!systemOpened) {
+        openSystemFolder(folder)
+        systemOpened = true
+    }
+}
+
+// ERROR LOGGER
+const maxLogLength = 250
+export function logError(log: any, electron: boolean = false) {
+    if (!isProd) return
+
+    let storedLog: any = error_log.store
+    let key = electron ? "main" : "renderer"
+
+    let previousLog: any[] = storedLog[key] || []
+    previousLog.push(log)
+
+    if (previousLog.length > maxLogLength) previousLog = previousLog.slice(previousLog.length - maxLogLength)
+    if (!previousLog.length) return
+
+    // error_log.clear()
+    error_log.set({ [key]: previousLog })
+}
+
+export function catchErrors() {
+    process.on("uncaughtException", (err) => logError(createLog(err), true))
+}
+
+function createLog(err: Error) {
+    return {
+        time: new Date(),
+        os: process.platform || "Unknown",
+        version: app.getVersion(),
+        type: "Uncaught Exception",
+        source: "See stack",
+        message: err.message,
+        stack: err.stack,
+    }
+}
+
+// STORE MEDIA AS BASE64
+function storeMedia(files: any[]) {
+    let encodedFiles: any[] = []
+    files.forEach(({ id, path }) => {
+        let content = readFile(path, "base64")
+        encodedFiles.push({ id, content })
+    })
+
+    toApp(MAIN, { channel: "MEDIA_BASE64", data: encodedFiles })
+}
+
+// GET STORE VALUE (used in special cases - currently only disableHardwareAcceleration)
+function getStoreValue(data: { file: string; key: string }) {
+    let store = data.file === "config" ? config : stores[data.file]
+    return { ...data, value: store.get(data.key) }
+}
+
+// GET STORE VALUE (used in special cases - currently only disableHardwareAcceleration)
+function setStoreValue(data: { file: string; key: string; value: any }) {
+    let store = data.file === "config" ? config : stores[data.file]
+    store.set(data.key, data.value)
 }

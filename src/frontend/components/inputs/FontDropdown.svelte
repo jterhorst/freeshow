@@ -1,9 +1,11 @@
 <script lang="ts">
-    import { slide } from "svelte/transition"
     import { createEventDispatcher, onMount } from "svelte"
-    import { receive, send } from "../../utils/request"
+    import { slide } from "svelte/transition"
     import { MAIN } from "../../../types/Channels"
     import { systemFonts } from "../../stores"
+    import { awaitRequest } from "../../utils/request"
+    import { formatSearch } from "../../utils/search"
+    import { removeDuplicates } from "../helpers/array"
 
     export let system: boolean = false
 
@@ -18,21 +20,20 @@
         // "sans-serif",
     ]
 
-    onMount(() => {
+    onMount(async () => {
         if ($systemFonts.length) addFonts($systemFonts)
-        else send(MAIN, ["GET_SYSTEM_FONTS"])
-    })
+        else {
+            let fonts: string[] = (await awaitRequest(MAIN, "GET_SYSTEM_FONTS"))?.fonts
+            if (!fonts) return
 
-    receive(MAIN, {
-        GET_SYSTEM_FONTS: (fonts: string[]) => {
             systemFonts.set(fonts)
             addFonts(fonts)
-        },
+        }
     })
 
     function addFonts(newFonts: string[]) {
         // join and remove duplicates
-        fonts = [...new Set([...fonts, ...newFonts])]
+        fonts = removeDuplicates([...fonts, ...newFonts])
         // sort
         fonts = fonts.sort((a, b) => a.localeCompare(b))
         // add default app font
@@ -54,14 +55,14 @@
         dispatch("click", fonts[index])
 
         // don't start timeout if scrolling with mouse
-        if (e.deltaY > 100 || e.deltaY < -100) return
+        if (e.deltaY >= 100 || e.deltaY <= -100) return
         nextScrollTimeout = setTimeout(() => {
             nextScrollTimeout = null
         }, 500)
     }
 
-    $: if (active) scrollToActive()
-    function scrollToActive() {
+    $: if (active) scrollToActive(value)
+    function scrollToActive(value: string) {
         let id = formatId(value)
         if (!id) return
 
@@ -74,6 +75,25 @@
     function formatId(value: string) {
         return value.replace(/[\W_]+/g, "")
     }
+
+    let searchValue: string = ""
+    $: if (active) searchValue = ""
+    // "invisible" search
+    function keydown(e: any) {
+        if (!active) return
+
+        if (e.key === "Backspace") {
+            searchValue = ""
+            scrollToActive(value)
+        } else {
+            searchValue = formatSearch(searchValue + e.key, true)
+
+            // scroll to first match
+            let firstMatch = fonts.find((a) => formatSearch(a, true).slice(0, searchValue.length).includes(searchValue))
+            if (!firstMatch) firstMatch = fonts.find((a) => formatSearch(a, true).includes(searchValue))
+            if (firstMatch) scrollToActive(firstMatch)
+        }
+    }
 </script>
 
 <svelte:window
@@ -82,6 +102,7 @@
             active = false
         }
     }}
+    on:keydown={keydown}
 />
 
 <div bind:this={self} class="dropdownElem" title={value || ""} style={$$props.style || ""}>
@@ -90,17 +111,20 @@
     </button>
     {#if active}
         <div class="dropdown" transition:slide={{ duration: 200 }}>
-            {#each fonts as option}
+            {#each fonts as font}
                 <span
-                    id={formatId(option)}
+                    id={formatId(font)}
                     on:click={() => {
-                        dispatch("click", option)
                         active = false
+                        // allow dropdown to close before updating, so svelte visual bug don't duplicate inputs on close transition in boxstyle edit etc.
+                        setTimeout(() => {
+                            dispatch("click", font)
+                        }, 50)
                     }}
-                    class:active={option === value}
-                    style="font-family: {option};"
+                    class:active={font === value}
+                    style="font-family: {font};"
                 >
-                    <p>{option || "—"}</p>
+                    <p>{font || "—"}</p>
                 </span>
             {/each}
         </div>

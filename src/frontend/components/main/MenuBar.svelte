@@ -1,7 +1,7 @@
 <script lang="ts">
-    import { onMount } from "svelte"
     import { MAIN } from "../../../types/Channels"
-    import { activePopup, saved } from "../../stores"
+    import { saved, windowState } from "../../stores"
+    import { initializeClosing } from "../../utils/save"
     import ContextChild from "../context/ContextChild.svelte"
     import ContextItem from "../context/ContextItem.svelte"
     import { contextMenuItems, contextMenuLayouts } from "../context/contextMenus"
@@ -11,22 +11,13 @@
 
     const menus: string[] = ["file", "edit", "view", "help"]
 
-    let maximized: boolean = false
     let active: boolean = false
     let activeID: null | string = null
     let activeMenu: string[] = []
     let x: number = 0
-    let y: number = 30
+    let y: number = 25
 
-    onMount(() => {
-        // give time to properly load before requesting window state
-        setTimeout(() => {
-            window.api.send(MAIN, { channel: "MAXIMIZED" })
-        })
-    })
-    window.api.receive(MAIN, (msg: any) => {
-        if (msg.channel === "MAXIMIZED") maximized = msg.data
-    })
+    $: maximized = !!$windowState.maximized
 
     function menu(e: any) {
         let id: string = e.target.id
@@ -35,7 +26,7 @@
 
         if (activeID === null) return
         x = e.target.offsetLeft
-        activeMenu = contextMenuLayouts[id]
+        activeMenu = contextMenuLayouts[id] || []
     }
 
     const click = (e: MouseEvent) => {
@@ -80,20 +71,13 @@
     </div>
     <div class="window">
         <Button on:click={() => window.api.send(MAIN, { channel: "MINIMIZE" })} center>
-            <Icon id="remove" size={1.4} white />
+            <Icon id="remove" size={1.2} white />
         </Button>
         <Button on:click={() => window.api.send(MAIN, { channel: "MAXIMIZE" })} style="transform: rotate(180deg);" center>
-            <Icon id={maximized ? "maximized" : "unmaximized"} size={maximized ? 1 : 1.1} white />
+            <Icon id={maximized ? "maximized" : "unmaximized"} size={maximized ? 0.8 : 0.9} white />
         </Button>
-        <Button
-            id="close"
-            on:click={() => {
-                if ($saved) window.api.send(MAIN, { channel: "CLOSE" })
-                else activePopup.set("unsaved")
-            }}
-            center
-        >
-            <Icon id="close" size={1.4} white />
+        <Button id="close" on:click={initializeClosing} center>
+            <Icon id="close" size={1.2} white />
         </Button>
     </div>
 </main>
@@ -109,7 +93,8 @@
         display: flex;
         justify-content: space-between;
         background-color: var(--primary-darkest);
-        height: 30px;
+        font-size: 0.9em;
+        height: 25px;
         -webkit-app-region: drag;
     }
 
@@ -120,7 +105,13 @@
     }
 
     .window :global(button) {
-        width: 60px;
+        width: 48px;
+    }
+
+    /* disable styled border radius */
+    div :global(button),
+    div :global(.menu) {
+        border-radius: 0px !important;
     }
 
     /* close */
@@ -142,9 +133,10 @@
         position: fixed;
         min-width: 250px;
         background-color: var(--primary-darker);
+        /* border-radius: var(--border-radius); */
         box-shadow: 1px 1px 3px 2px rgb(0 0 0 / 0.2);
         padding: 5px 0;
-        z-index: 100;
+        z-index: 6000;
         -webkit-app-region: no-drag;
     }
 

@@ -1,6 +1,5 @@
 <script lang="ts">
-    import { activeProject, activeRecording, activeShow, events, forceClock, media, overlays, redoHistory, scriptures, selected, shows, stageShows, undoHistory } from "../../stores"
-    import { GetLayout } from "../helpers/get"
+    import { activeProject, activeRecording, activeShow, events, forceClock, media, os, outputs, overlays, redoHistory, scriptures, selected, shows, slidesOptions, stageShows, undoHistory } from "../../stores"
     import Icon from "../helpers/Icon.svelte"
     import { _show } from "../helpers/shows"
     import T from "../helpers/T.svelte"
@@ -12,17 +11,38 @@
     export let id: string
     export let menu: ContextMenuItem = contextMenuItems[id]
     export let disabled: boolean = false
+
+    let hide: boolean = false
     let enabled: boolean = menu?.enabled ? true : false
 
     const conditions: any = {
+        // slide views
+        view_grid: () => ($slidesOptions.mode === "grid" ? (enabled = true) : ""),
+        view_simple: () => ($slidesOptions.mode === "simple" ? (enabled = true) : ""),
+        view_list: () => ($slidesOptions.mode === "list" ? (enabled = true) : ""),
+        view_lyrics: () => ($slidesOptions.mode === "lyrics" ? (enabled = true) : ""),
+        view_text: () => ($slidesOptions.mode === "text" ? (enabled = true) : ""),
+        rename: () => {
+            hide = $shows[$selected.data[0]?.id]?.locked
+        },
+        delete: () => {
+            hide = $shows[$selected.data[0]?.id]?.locked
+        },
         private: () => {
-            if ($shows[$selected.data[0]?.id]?.private) enabled = $shows[$selected.data[0].id].private!
+            let show = $shows[$selected.data[0]?.id]
+            if (!show) return
+
+            enabled = show.private
+            hide = !enabled && show.locked
+        },
+        lock_show: () => {
+            if (!$shows[$selected.data[0]?.id]?.locked) return
+            enabled = $shows[$selected.data[0].id].locked
         },
         disable: () => {
             if ($selected.id === "slide" && $activeShow) {
-                enabled = GetLayout()[$selected.data[0].index].disabled! || false
-            } else if ($selected.id === "group") {
-                enabled = GetLayout().find((a) => a.id === $selected.data[0].id)?.disabled!
+                let ref = _show().layouts("active").ref()[0]
+                enabled = ref[$selected.data[0].index]?.data?.disabled || false
             } else if ($selected.id === "stage") {
                 enabled = $stageShows[$selected.data[0].id]?.disabled
             }
@@ -33,10 +53,8 @@
             if ($selected.id !== "slide") return
 
             let ref = _show().layouts("active").ref()[0]
+            const getCurrentSlide = (index) => ref.find((a) => a.layoutIndex === index)
             let parentSlide = $selected.data.find((a) => a.index && getCurrentSlide(a.index)?.type === "parent")
-            function getCurrentSlide(index) {
-                return ref.find((a) => a.layoutIndex === index)
-            }
 
             if (parentSlide) return
 
@@ -44,7 +62,8 @@
             disabled = true
         },
         remove: () => {
-            if ($selected.id === "show" && _show($selected.data[0].id).get("private") === true) disabled = true
+            if ($selected.id !== "show" || _show($selected.data[0].id).get("private") !== true) return
+            disabled = true
         },
         undo: () => {
             if (!$undoHistory.length) disabled = true
@@ -53,20 +72,27 @@
             if (!$redoHistory.length) disabled = true
         },
         addToProject: () => {
-            if (!$activeProject) disabled = true
+            if ($selected.id === "media" && $selected.data.length > 1) {
+                id = "addToShow"
+                menu = { label: "context.add_to_show", icon: "slide" }
+                if (!$activeShow || ($activeShow.type || "show") !== "show") disabled = true
+            } else {
+                if (!$activeProject) disabled = true
+            }
         },
         play_no_filters: () => {
             let path = $selected.data[0]?.path || $selected.data[0]?.id
             if (!path || !$media[path]?.filter) disabled = true
         },
         delete_all: () => {
-            if (contextElem?.classList.value.includes("#event")) {
-                let group: any = $events[contextElem.id].group
-                if (!group || !Object.entries($events).find(([id, event]: any) => id !== contextElem.id && event.group === group)) disabled = true
-            }
+            if (!contextElem?.classList.value.includes("#event")) return
+
+            let group: any = $events[contextElem.id].group
+            if (group && Object.entries($events).find(([id, event]: any) => id !== contextElem.id && event.group === group)) return
+
+            disabled = true
         },
         createCollection: () => {
-            console.log($selected.data)
             let selectedBibles = $selected.data.map((id) => $scriptures[id]).filter((a) => !a?.collection)
             if (selectedBibles.length < 2) disabled = true
         },
@@ -77,6 +103,10 @@
         lock_to_output: () => {
             let id = $selected.data[0]
             if ($overlays[id]?.locked) enabled = true
+        },
+        hide_from_preview: () => {
+            let outputId = contextElem.id
+            if ($outputs[outputId]?.hideFromPreview) enabled = true
         },
         place_under_slide: () => {
             let id = $selected.data[0]
@@ -99,20 +129,8 @@
         //     if (item is bound) enabled = true
         // }
     }
-    if (conditions[id]) conditions[id]()
 
-    // if (id === "private" && $showsCache[$selected.data[0]?.id]?.private) {
-    //   enabled = $showsCache[$selected.data[0].id].private!
-    // } else if (id === "disable") {
-    //   if ($selected.id === "slide" && $activeShow && GetLayout()[$selected.data[0]?.index]?.disabled) {
-    //     enabled = GetLayout()[$selected.data[0].index].disabled!
-    //   } else if ($selected.id === "group") {
-    //     enabled = GetLayout().find((a) => a.id === $selected.data[0].id)?.disabled!
-    //   }
-    // } else if (id === "remove" && $selected.id === "slide") {
-    //   if ($selected.data.filter((a) => a.index === 0).length || GetLayoutRef()[$selected.data[0].index].type === "child") disabled = true
-    // } else if (id === "undo" && !$undoHistory.length) disabled = true
-    // else if (id === "redo" && !$redoHistory.length) disabled = true
+    if (conditions[id]) conditions[id]()
 
     function contextItemClick() {
         if (disabled) return
@@ -122,17 +140,32 @@
 
         let m: any = menuClick(id, enabled, menu, contextElem, actionItem, sel)
         if (m?.enabled !== undefined) enabled = m.enabled
+
+        // don't hide context menu
+        const keepOpen = ["enabled_drawer_tabs", "tags", "bind_to", "item_bind_to"]
+        if (keepOpen.includes(id)) {
+            enabled = !enabled
+            return
+        }
+
         if (!m || m.hide) contextActive = false
     }
 
     function keydown(e: any) {
         if (e.key === "Enter") contextItemClick()
     }
+
+    let shortcut: string = ""
+    $: if (menu?.shortcuts) getShortcuts()
+    function getShortcuts() {
+        // WIP multiple
+        let s = menu.shortcuts![0]
+        if ($os.platform === "darwin") s.replaceAll("Ctrl", "Cmd")
+        shortcut = s
+    }
 </script>
 
-<!-- {$fullColors ? 'background-' : ''} -->
-<!-- title={menu?.shortcuts?.join(", ")} -->
-<div on:click={contextItemClick} class:enabled class:disabled style="color: {menu?.color || 'unset'}" tabindex={0} on:keydown={keydown}>
+<div on:click={contextItemClick} class:enabled class:disabled class:hide style="color: {menu?.color || 'unset'};font-weight: {menu?.color ? '500' : 'normal'};" tabindex={0} on:keydown={keydown}>
     <span style="display: flex;align-items: center;gap: 10px;">
         {#if menu?.icon}<Icon id={menu.icon} />{/if}
         {#if menu?.translate === false}
@@ -143,10 +176,9 @@
             {/key}
         {/if}
     </span>
-    {#if menu?.shortcuts}
-        <span style="opacity: 0.5;">
-            {menu.shortcuts[0]}
-        </span>
+
+    {#if shortcut}
+        <span style="opacity: 0.5;">{shortcut}</span>
     {/if}
 </div>
 
@@ -175,5 +207,9 @@
     .enabled {
         color: var(--secondary);
         background-color: rgb(255 255 255 / 0.1);
+    }
+
+    .hide {
+        display: none;
     }
 </style>

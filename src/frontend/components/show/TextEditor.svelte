@@ -1,8 +1,9 @@
 <script lang="ts">
+    import type { Item } from "../../../types/Show"
     import { getQuickExample } from "../../converters/txt"
     import { slidesOptions } from "../../stores"
     import { _show } from "../helpers/shows"
-    import { formatText } from "./formatTextEditor"
+    import { formatText, getTextboxes } from "./formatTextEditor"
     import Notes from "./tools/Notes.svelte"
 
     export let currentShow: any
@@ -47,23 +48,32 @@
         text = text.trim()
     }
 
-    function getItems(items) {
+    function getItems(items: Item[]) {
         let text = ""
         let plainText = ""
-        let hasTextboxItem: boolean = false
+        // let selectedItem: Item = getFirstNormalTextbox(items)
+        let selectedItems: Item[] = getTextboxes(items)
 
-        items.forEach((item) => {
-            if (!item.lines) return
-            // only return first textbox!
-            if (hasTextboxItem) return
+        if (!selectedItems.length) return { text, plainText, hasTextboxItem: false }
 
-            hasTextboxItem = true
+        selectedItems.forEach((item, i) => {
+            if (selectedItems.length > 1) {
+                let textboxId = "[#" + (i + 1) + "]"
+                text += textboxId + "\n"
+                plainText += textboxId + "\n"
+            }
 
-            let filteredLines = item.lines?.filter((line) => line.text?.filter((text) => text.value.length).length)
+            let filteredLines = item.lines?.filter((line) => line.text?.filter((text) => text.value.length).length) || []
             filteredLines.forEach((line, i) => {
                 let tempText = ""
                 line.text?.forEach((txt) => {
                     tempText += txt.value
+                })
+
+                // chords (from last in line to first)
+                let sortedChords = line.chords?.sort((a, b) => b.pos - a.pos) || []
+                sortedChords.forEach((chord) => {
+                    if (tempText[chord.pos]) tempText = tempText.slice(0, chord.pos) + `[${chord.key}]` + tempText.slice(chord.pos)
                 })
 
                 if (tempText.length) {
@@ -71,12 +81,13 @@
                     plainText += tempText + (i < filteredLines.length - 1 ? "\n" : "")
                 }
             })
+
             // remove double enters
             text = text.replaceAll("\n\n", "")
-            text += "\n"
+            if (i === selectedItems.length - 1) text += "\n"
         })
 
-        return { text, plainText, hasTextboxItem }
+        return { text, plainText, hasTextboxItem: true }
     }
 
     const br = "||__$BREAK$__||"
@@ -89,4 +100,4 @@
     }
 </script>
 
-<Notes style="padding: 30px;font-size: {(-1.1 * $slidesOptions.columns + 12) / 6}em;" placeholder={getQuickExample()} value={text} on:change={formatText} />
+<Notes disabled={currentShow?.locked} style="padding: 30px;font-size: {(-1.1 * $slidesOptions.columns + 12) / 6}em;" placeholder={getQuickExample()} value={text} on:change={formatText} />

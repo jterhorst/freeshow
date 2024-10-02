@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte"
     import { MAIN } from "../../../../types/Channels"
-    import { activePopup, showsPath } from "../../../stores"
+    import { activePopup, dataPath, guideActive, showsPath } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
     import Button from "../../inputs/Button.svelte"
@@ -13,13 +13,16 @@
     // const setAutoOutput = (e: any) => autoOutput.set(e.target.checked)
 
     onMount(() => {
-        if (!$showsPath) send(MAIN, ["SHOWS_PATH"])
+        if (!$dataPath) send(MAIN, ["DATA_PATH", "SHOWS_PATH"])
     })
 
     function create(e: any) {
         if (e.target.closest(".main") && !e.target.closest(".start")) return
-        window.api.send(MAIN, { channel: "GET_PATHS" })
 
+        send(MAIN, ["GET_PATHS"])
+        send(MAIN, ["REFRESH_SHOWS"], { path: $showsPath })
+
+        guideActive.set(true)
         activePopup.set(null)
     }
 </script>
@@ -30,19 +33,19 @@
 
     <br />
 
-    <p style="margin-bottom: 10px;"><T id="setup.change_later" />:</p>
+    <p style="margin-bottom: 10px;font-style: italic;opacity: 0.7;"><T id="setup.change_later" />:</p>
     <CombinedInput textWidth={30}>
         <p><T id="settings.language" /></p>
         <LocaleSwitcher />
     </CombinedInput>
+
     <CombinedInput textWidth={30}>
-        <p style="overflow: visible;"><T id="settings.show_location" /></p>
+        <p style="overflow: visible;"><T id="settings.data_location" /></p>
         <span class="showElem">
-            <!-- <p>{$showsPath || ""}</p> -->
-            <FolderPicker style="width: 100%;" title={$showsPath || ""} id="SHOWS" center={false}>
+            <FolderPicker style="width: 100%;" title={$dataPath || ""} id="DATA_SHOWS" center={false} path={$dataPath}>
                 <Icon id="folder" size={1.2} right />
-                {#if $showsPath}
-                    {$showsPath}
+                {#if $dataPath}
+                    {$dataPath}
                 {:else}
                     <T id="inputs.change_folder" />
                 {/if}

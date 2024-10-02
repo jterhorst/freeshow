@@ -1,37 +1,71 @@
 <script type="ts">
-    import { activeEdit, activeShow, dictionary, drawTool, os, outputDisplay, paintCache, saved } from "../../stores"
+    import { activeEdit, activeShow, dictionary, drawTool, os, outputDisplay, paintCache, saved, shows } from "../../stores"
+    import { newToast } from "../../utils/common"
     import Icon from "../helpers/Icon.svelte"
     import { displayOutputs } from "../helpers/output"
     import Button from "../inputs/Button.svelte"
     import TopButton from "../inputs/TopButton.svelte"
 
     export let isWindows: boolean = false
+
+    $: editDisabled = (!$activeShow && !$activeEdit.type && ($activeEdit.slide === undefined || $activeEdit.slide === null)) || $shows[$activeShow?.id || ""]?.locked || $activeShow?.type === "pdf"
+
+    let confirm: boolean = false
+    let cancelConfirmTimeout: any = null
+    function toggleOutput() {
+        if (cancelConfirmTimeout) clearTimeout(cancelConfirmTimeout)
+
+        if (!$outputDisplay || confirm) {
+            confirm = false
+            displayOutputs()
+            return
+        }
+
+        confirm = true
+        newToast("$menu.again_confirm")
+        cancelConfirmTimeout = setTimeout(() => {
+            confirm = false
+        }, 1800)
+    }
 </script>
 
 <div class="top" class:drag={!isWindows}>
     <!-- {#if !isWindows}
     <div class="dragZone" />
     {/if} -->
-    <span style="width: 300px;">
+    <span style="width: var(--navigation-width);">
         {#if !$saved && $os.platform !== "win32"}
             <div class="unsaved" />
         {/if}
         <!-- logo -->
         <h1 style="align-self: center;width: 100%;padding: 0px 10px;text-align: center;font-size: 1.8em;">FreeShow</h1>
+        <!-- <div class="logo">
+            <img style="height: 35px;" src="./import-logos/freeshow.webp" alt="FreeShow-logo" draggable={false} />
+            <h1 style="color: var(--text);font-size: 1.7em;">FreeShow</h1>
+        </div> -->
     </span>
     <span>
         <TopButton id="show" />
-        <TopButton id="edit" disabled={!$activeShow && !$activeEdit.type && ($activeEdit.slide === undefined || $activeEdit.slide === null)} />
+        <TopButton id="edit" disabled={editDisabled} />
         <!-- <TopButton id="draw" /> -->
         <TopButton id="stage" />
     </span>
-    <span style="width: 300px;justify-content: flex-end;">
+    <span style="width: var(--navigation-width);justify-content: flex-end;">
         <!-- <TopButton id="stage" hideLabel /> -->
-        <TopButton id="draw" red={$drawTool === "fill" || !!($drawTool === "paint" && $paintCache?.length)} hideLabel />
+        <TopButton id="draw" red={$drawTool === "fill" || $drawTool === "zoom" || !!($drawTool === "paint" && $paintCache?.length)} hideLabel />
         <TopButton id="settings" hideLabel />
-        <Button title={($outputDisplay ? $dictionary.menu?._title_display_stop : $dictionary.menu?._title_display) + " [Ctrl+O]"} on:click={displayOutputs} class="context #output display {$outputDisplay ? 'on' : 'off'}" red={$outputDisplay}>
+        <Button
+            title={($outputDisplay ? (confirm ? $dictionary.menu?.again_confirm : $dictionary.menu?._title_display_stop) : $dictionary.menu?._title_display) + " [Ctrl+O]"}
+            on:click={toggleOutput}
+            class="context #output display {$outputDisplay ? 'on' : 'off'}"
+            red={$outputDisplay}
+        >
             {#if $outputDisplay}
-                <Icon id="cancelDisplay" size={1.6} white />
+                {#if confirm}
+                    <Icon id="close" size={1.6} white />
+                {:else}
+                    <Icon id="cancelDisplay" size={1.6} white />
+                {/if}
             {:else}
                 <Icon id="outputs" size={1.6} white />
             {/if}
@@ -88,5 +122,20 @@
         height: 100%;
         width: 5px;
         background-color: rgb(255 0 0 / 0.25);
+    }
+
+    /* .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0px 10px;
+        width: 100%;
+        gap: 10px;
+    } */
+
+    @media screen and (max-width: 580px) {
+        .top span:first-child {
+            display: none;
+        }
     }
 </style>

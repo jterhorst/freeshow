@@ -2,91 +2,84 @@
     import { version } from "../../../stores"
     import T from "../../helpers/T.svelte"
     import Link from "../../inputs/Link.svelte"
+
+    const assets: { [key: string]: string } = {
+        "CMG Sans (Custom font)": "https://www.churchmotiongraphics.com/cmg-sans/",
+        "Google Fonts (Icons)": "https://fonts.google.com/icons/",
+        "Icons8 (Icons)": "https://icons8.com/",
+        "Pixabay (Web Images)": "https://pixabay.com/",
+        "Unsplash (Web Images)": "https://unsplash.com/",
+        "Electron (Cross-platform desktop apps)": "https://www.electronjs.org/",
+        "Svelte (DOM framework)": "https://svelte.dev/",
+        "Rollup (Module bundler)": "https://rollupjs.org/",
+        "Socket.io (LAN connections)": "https://socket.io/",
+        "Express (Web framework)": "https://expressjs.com/",
+        "NDI® SDK (IP-streaming)": "https://ndi.video/",
+        "CAPTION.Ninja (Live captions)": "https://caption.ninja/",
+        "Google Translate (Localization)": "https://translate.google.com/",
+    }
 </script>
 
 <div style="text-align: center;">
-    <h1>FreeShow</h1>
+    <div class="logo">
+        <img style="height: 35px;" src="./import-logos/freeshow.webp" alt="FreeShow-logo" draggable={false} />
+        <h1 style="color: var(--text);font-size: 1.7em;">FreeShow</h1>
+    </div>
+
     <p>
         <span style="opacity: 0.8;">v{$version} -</span>
         <Link url={"https://freeshow.app/?v" + $version}>
             <T id="about.check_updates" />
         </Link>
     </p>
+
+    <!-- <p>
+        <Link url="https://churchapps.org/">ChurchApps</Link>
+    </p> -->
 </div>
+
 <br />
+
 <div class="main">
-    <div><T id="about.made" /> Kristoffer Vassbø</div>
-    <div><T id="about.report" /></div>
-    <div>
-        <T id="about.help" />
-        <Link url={"mailto:dev@freeshow.app"}>dev@freeshow.app</Link>
+    <div class="text">
+        <div>
+            • <T id="about.more" />
+            <Link url="https://churchapps.org/">ChurchApps</Link>
+        </div>
+        <div>
+            • <T id="about.report" />
+            <Link url="https://github.com/ChurchApps/FreeShow/issues">GitHub Issues</Link>
+        </div>
+        <div>
+            • <T id="about.translate" />
+            <Link url="https://app.transifex.com/nettbiter/freeshow/">Transifex</Link>
+        </div>
+        <!-- <div>
+            • <T id="about.mail" />
+            <Link url="mailto:dev@freeshow.app">dev@freeshow.app</Link>
+        </div> -->
+        <div>
+            • <T id="about.support" />!
+            <Link url="https://churchapps.org/partner#give">churchapps.org/partner</Link>
+        </div>
     </div>
+
     <br />
-    <!-- <h6><T id="about.libraries" /></h6>
-  <h6><T id="about.thanks" /></h6> -->
+
     <div>
         <h5><T id="about.assets" /></h5>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● CMG Sans (Custom font)</span>
-            <span>
-                <Link url={"https://www.churchmotiongraphics.com/cmg-sans/"}>https://www.churchmotiongraphics.com/cmg-sans/</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Google Fonts (Icons)</span>
-            <span>
-                <Link url={"https://fonts.google.com/icons"}>https://fonts.google.com/icons</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Icons8 (Icons)</span>
-            <span>
-                <Link url={"https://icons8.com"}>https://icons8.com</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Pixabay (Web Images)</span>
-            <span>
-                <Link url={"https://pixabay.com/"}>https://pixabay.com/</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Electron (Cross-platform desktop apps)</span>
-            <span>
-                <Link url={"https://www.electronjs.org/"}>https://www.electronjs.org/</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Svelte (DOM framework)</span>
-            <span>
-                <Link url={"https://svelte.dev/"}>https://svelte.dev/</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Rollup (Module bundler)</span>
-            <span>
-                <Link url={"https://rollupjs.org/"}>https://rollupjs.org/</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Socket.io (LAN connections)</span>
-            <span>
-                <Link url={"https://socket.io/"}>https://socket.io/</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● Express (Web framework)</span>
-            <span>
-                <Link url={"https://expressjs.com/"}>https://expressjs.com/</Link>
-            </span>
-        </div>
-        <div style="display: flex;justify-content: space-between;gap: 10px;">
-            <span>● NDI® SDK (IP-streaming)</span>
-            <span>
-                <Link url={"https://ndi.video/"}>https://ndi.video/</Link>
-            </span>
-        </div>
+
+        {#each Object.entries(assets) as [asset, url]}
+            <div style="display: flex;justify-content: space-between;gap: 10px;">
+                <span>● {asset}</span>
+                <span>
+                    <Link {url}>{url}</Link>
+                </span>
+            </div>
+        {/each}
     </div>
+
+    <div style="text-align: center;font-size: 0.7em;opacity: 0.5;margin-top: 12px;"><T id="about.made" /> Kristoffer Vassbø (2021)</div>
 </div>
 
 <style>
@@ -94,6 +87,15 @@
         display: flex;
         flex-direction: column;
         gap: 5px;
+    }
+
+    .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0px 10px;
+        width: 100%;
+        gap: 10px;
     }
 
     h5 {

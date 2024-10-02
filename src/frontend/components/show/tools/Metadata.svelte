@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte"
-    import { activeShow, outputs, showsCache, styles, templates } from "../../../stores"
+    import { activeShow, dictionary, outputs, showsCache, styles, templates } from "../../../stores"
     import T from "../../helpers/T.svelte"
     import { history } from "../../helpers/history"
     import Checkbox from "../../inputs/Checkbox.svelte"
@@ -9,6 +9,10 @@
     import Panel from "../../system/Panel.svelte"
     import Notes from "./Notes.svelte"
     import { getActiveOutputs } from "../../helpers/output"
+    import Tags from "../Tags.svelte"
+    import { sortByName } from "../../helpers/array"
+    import { initializeMetadata } from "../../helpers/show"
+    import CombinedInput from "../../inputs/CombinedInput.svelte"
 
     // WIP duplicate of Outputs.svelte
     const metaDisplay: any[] = [
@@ -21,17 +25,18 @@
 
     $: currentShow = $showsCache[$activeShow!.id]
     $: meta = currentShow.meta
-    let values: any = {}
+    let values: { [key: string]: string } = {}
     let message: any = {}
     let metadata: any = {}
     let templateList: any[] = []
     let outputShowSettings: any = {}
 
+    let loaded: boolean = false
     onMount(getValues)
     $: if ($activeShow!.id) getValues()
 
     function getValues() {
-        values = { title: "", artist: "", author: "", composer: "", publisher: "", copyright: "", CCLI: "", year: "" }
+        values = initializeMetadata({})
         Object.entries(meta).forEach(([key, value]) => {
             values[key] = value
         })
@@ -39,15 +44,12 @@
         metadata = currentShow.metadata || {}
         message = currentShow.message || {}
 
-        templateList = [
-            { id: null, name: "—" },
-            ...Object.entries($templates)
-                .map(([id, template]: any) => ({ id, name: template.name }))
-                .sort((a, b) => a.name.localeCompare(b.name)),
-        ]
+        templateList = [{ id: null, name: "—" }, ...sortByName(Object.entries($templates).map(([id, template]: any) => ({ id, name: template.name })))]
 
         let outputId = getActiveOutputs($outputs)[0]
         outputShowSettings = $styles[$outputs[outputId]?.style || ""] || {}
+
+        setTimeout(() => (loaded = true), 100)
     }
 
     const changeValue = (e: any, key: string) => {
@@ -65,6 +67,7 @@
         let value = e.target.checked
         metadata.override = value
         updateData(metadata, "metadata")
+        hide()
     }
 
     function updateData(data, key) {
@@ -72,37 +75,38 @@
         history({ id: "UPDATE", newData: { data, key }, oldData: { id: $activeShow!.id }, location: { page: "show", id: "show_key", override } })
     }
 
+    // I have no idea why, but the ui jump around without resetting this new checkbox
     let tempHide = false
-    $: if (metadata.override !== undefined) {
+    $: setHide = metadata.display || metadata.template || message.template
+    $: if (setHide) hide()
+    function hide() {
+        if (!loaded) return
         tempHide = true
-        setTimeout(() => {
-            tempHide = false
-        }, 10)
+        setTimeout(() => (tempHide = false), 10)
+
+        // scroll to bottom
+        setTimeout(() => document.querySelector(".content")?.scrollTo(0, 999), 20)
     }
 </script>
 
-<Panel>
+<Panel flex column={!tempHide}>
+    {#if metadata.autoMedia !== true}
+        <div class="gap">
+            {#each Object.entries(values) as [key, value]}
+                <CombinedInput textWidth={40}>
+                    <p title={$dictionary.meta?.[key]}><T id="meta.{key}" /></p>
+                    <TextInput {value} on:change={(e) => changeValue(e, key)} />
+                </CombinedInput>
+            {/each}
+        </div>
+    {/if}
+
     <div class="styling">
         <div>
-            <p><T id="meta.auto_media" /> (JPEG)</p>
+            <p title="{$dictionary.meta?.auto_media} (EXIF from .JPEG)"><T id="meta.auto_media" /></p>
             <Checkbox checked={metadata.autoMedia || false} on:change={toggleAutoMedia} />
         </div>
     </div>
-
-    {#if metadata.autoMedia !== true}
-        <div class="gap" style="padding: 10px;">
-            <span class="titles">
-                {#each Object.keys(values) as key}
-                    <p><T id="meta.{key}" /></p>
-                {/each}
-            </span>
-            <span style="flex: 1;display: flex;flex-direction: column;gap: 5px;">
-                {#each Object.entries(values) as [key, value]}
-                    <TextInput {value} on:change={(e) => changeValue(e, key)} />
-                {/each}
-            </span>
-        </div>
-    {/if}
 
     <!-- message -->
     <h5><T id="meta.message" /></h5>
@@ -114,15 +118,14 @@
     <!-- styling -->
     <h5><T id="edit.style" /></h5>
     <div class="styling">
-        <!-- I have no idea why, but the ui jump around without resetting this new checkbox -->
-        <div class:tempHide>
+        <div>
             <p><T id="meta.override_output" /></p>
             <Checkbox checked={metadata.override || false} on:change={toggleOverride} />
         </div>
         {#if metadata.override}
             <!-- meta display -->
-            <div class="style_data">
-                <p><T id="meta.display_metadata" /></p>
+            <CombinedInput style="margin-top: 10px;">
+                <p title={$dictionary.meta?.display_metadata}><T id="meta.display_metadata" /></p>
                 <Dropdown
                     options={metaDisplay}
                     value={metaDisplay.find((a) => a.id === (metadata.display || "never"))?.name || "—"}
@@ -131,10 +134,10 @@
                         updateData(metadata, "metadata")
                     }}
                 />
-            </div>
+            </CombinedInput>
             <!-- meta template -->
-            <div class="style_data">
-                <p><T id="meta.meta_template" /></p>
+            <CombinedInput>
+                <p title={$dictionary.meta?.meta_template}><T id="meta.meta_template" /></p>
                 <Dropdown
                     options={templateList}
                     value={$templates[metadata.template === undefined ? outputShowSettings.metadataTemplate || "metadata" : metadata.template]?.name || "—"}
@@ -143,15 +146,15 @@
                         updateData(metadata, "metadata")
                     }}
                 />
-            </div>
+            </CombinedInput>
             <!-- message display -->
-            <!-- <div class="style_data">
-                <p><T id="meta.display_message" /></p>
-                <Dropdown options={metaDisplay} value={metaDisplay.find((a) => a.id === (message.display || outputShowSettings.displayMessage || "never"))?.name || "—"}  on:click={(e) => updateData()} />
-            </div> -->
+            <!-- <CombinedInput>
+                <p title={$dictionary.meta?.display_message}><T id="meta.display_message" /></p>
+                <Dropdown options={metaDisplay} value={metaDisplay.find((a) => a.id === (message.display || outputShowSettings.displayMessage || "never"))?.name || "—"} on:click={(e) => updateData()} />
+            </CombinedInput> -->
             <!-- message template -->
-            <div class="style_data">
-                <p><T id="meta.message_template" /></p>
+            <CombinedInput>
+                <p title={$dictionary.meta?.message_template}><T id="meta.message_template" /></p>
                 <Dropdown
                     options={templateList}
                     value={$templates[message.template === undefined ? outputShowSettings.messageTemplate || "message" : message.template]?.name || "—"}
@@ -161,8 +164,13 @@
                         updateData(message, "message")
                     }}
                 />
-            </div>
+            </CombinedInput>
         {/if}
+    </div>
+
+    <h5><T id="meta.tags" /></h5>
+    <div class="tags" style="display: flex;flex-direction: column;">
+        <Tags />
     </div>
 </Panel>
 
@@ -177,12 +185,16 @@
         text-transform: uppercase;
     }
 
-    .styling div.tempHide {
-        display: none;
+    .gap {
+        padding: 10px;
+        padding-bottom: 0;
+        flex-direction: column;
+        gap: 0;
     }
 
     .message,
-    .styling {
+    .styling,
+    .tags {
         padding: 10px;
     }
 
@@ -194,17 +206,10 @@
         position: relative;
         display: block;
         background: var(--primary-darker);
+        height: initial;
     }
 
     .styling div {
         display: flex;
-    }
-    .styling .style_data {
-        padding-top: 5px;
-    }
-
-    .style_data :global(.dropdownElem) {
-        min-width: 50%;
-        max-width: 50%;
     }
 </style>

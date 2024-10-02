@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { activeShow, showsCache } from "../../../stores"
+    import { activeFocus, activeShow, focusMode, presentationData, showsCache } from "../../../stores"
     import T from "../../helpers/T.svelte"
 
     export let currentOutput: any
@@ -9,12 +9,7 @@
 
     $: slide = currentOutput?.out?.slide
 
-    // $: if (!slide) {
-    //   let outs = getActiveOutputs().map((id) => $outputs[id])
-    //   currentOutput = outs.find((output) => output.out?.slide)
-    // }
-
-    $: name = slide && $showsCache[slide?.id] ? $showsCache[slide?.id].name : "—"
+    $: name = slide?.name || $showsCache[slide?.id]?.name || "—"
     $: length = ref?.length || 0
 
     function openShow() {
@@ -27,8 +22,12 @@
             })
         }
 
-        activeShow.set({ id: slide?.id })
+        if ($focusMode) activeFocus.set({ id: slide?.id })
+        else activeShow.set({ id: slide?.id, type: slide?.type || "show" })
     }
+
+    $: currentIndex = slide?.type === "ppt" ? $presentationData.stat?.position : (slide?.page || slide?.index || 0) + 1
+    $: totalLength = slide?.type === "ppt" ? $presentationData.stat?.slides : slide?.pages || length
 </script>
 
 {#if slide}
@@ -40,13 +39,14 @@
                 <T id="main.unnamed" />
             {/if}
         </p>
-        <!-- TODO: update -->
-        <span style="opacity: 0.6;">
-            {(slide?.index || 0) + 1}/{length}
-            {#if linesIndex !== null && maxLines !== null}
-                ({linesIndex + 1}/{maxLines})
-            {/if}
-        </span>
+        {#if totalLength}
+            <span style="opacity: 0.6;white-space: nowrap;">
+                {currentIndex}/{totalLength}
+                {#if linesIndex !== null && maxLines !== null}
+                    ({linesIndex + 1}/{maxLines})
+                {/if}
+            </span>
+        {/if}
     </span>
 {/if}
 

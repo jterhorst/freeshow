@@ -1,9 +1,10 @@
 import { get } from "svelte/store"
-import { activePage, driveData, historyCacheCount, selected, undoHistory } from "../../stores"
+import { activePage, driveData, historyCacheCount, undoHistory } from "../../stores"
 import type { ShowRef } from "./../../../types/Projects"
 import { redoHistory } from "./../../stores"
 import { clone } from "./array"
 import { historyActions } from "./historyActions"
+import { deselect } from "./select"
 import { loadShows } from "./setShow"
 import { _show } from "./shows"
 
@@ -115,13 +116,12 @@ export function history(obj: History, undo: null | boolean = null) {
                 break
             case "slideStyle":
                 old = { style: _show(showID).slides([obj.location?.slide!]).set({ key: "settings", value: obj.newData.style }) }
-                if (!undo && _show(showID).get("settings.template")) old.template = { key: "settings.template", value: null }
-                if (old.template) _show(showID).set(old.template)
                 break
             case "slide":
                 old = {
                     slides: _show(showID).set({ key: "slides", value: obj.newData.slides }),
-                    layout: _show(showID).layouts([obj.location!.layout!]).set({ key: "slides", value: obj.newData.layout })[0].value,
+                    layout: _show(showID).layouts([obj.location!.layout!]).set({ key: "slides", value: obj.newData.layout })[0]?.value,
+                    media: _show(showID).set({ key: "media", value: obj.newData.media || _show(showID).get("media") }),
                 }
                 break
 
@@ -143,18 +143,26 @@ export function history(obj: History, undo: null | boolean = null) {
                         .slides([[obj.location!.layoutSlide!]])
                         .remove("background")
                 } else {
-                    let ref = _show(showID).layouts([obj.location!.layout!]).ref()[0][obj.location!.layoutSlide!]
+                    let ref = _show(showID).layouts([obj.location!.layout!]).ref()?.[0]?.[obj.location!.layoutSlide!]
+                    if (ref) {
+                        let cloudId = get(driveData).mediaId
+                        if (ref.data.background && cloudId && cloudId !== "default") {
+                            bgid = ref.data.background
+                            _show(showID).media().add(obj.newData, bgid!)
+                        } else {
+                            // look for existing media
+                            let existing = _show(showID)
+                                .media()
+                                .get()
+                                .find((a) => a.path === obj.newData.path)
+                            if (existing) bgid = existing.key
+                        }
+                        if (!bgid) bgid = _show(showID).media().add(obj.newData)
 
-                    let cloudId = get(driveData).mediaId
-                    if (ref.data.background && cloudId && cloudId !== "default") {
-                        bgid = ref.data.background
-                        _show(showID).media().add(obj.newData, bgid!)
+                        // let layoutSlide = _show(showIDs).layouts([obj.location!.layout!]).slides([ref.index]).get()[0]
+                        if (ref.type === "parent") _show(showID).layouts([obj.location!.layout!]).slides([ref.index]).set({ key: "background", value: bgid })
+                        else _show(showID).layouts([obj.location!.layout!]).slides([ref.parent.index]).children([ref.id]).set({ key: "background", value: bgid })
                     }
-                    if (!bgid) bgid = _show(showID).media().add(obj.newData)
-
-                    // let layoutSlide = _show(showIDs).layouts([obj.location!.layout!]).slides([ref.index]).get()[0]
-                    if (ref.type === "parent") _show(showID).layouts([obj.location!.layout!]).slides([ref.index]).set({ key: "background", value: bgid })
-                    else _show(showID).layouts([obj.location!.layout!]).slides([ref.parent.index]).children([ref.id]).set({ key: "background", value: bgid })
                 }
                 break
             case "showAudio":
@@ -174,6 +182,7 @@ export function history(obj: History, undo: null | boolean = null) {
                 // layout audio
                 let ref = _show(showID).layouts([obj.location!.layout!]).ref()[0][obj.location!.layoutSlide!]
                 let audio = ref?.data?.audio || []
+                if (!ref) return
 
                 if (undo) {
                     _show(showID).media([obj.newData.path]).remove()
@@ -269,7 +278,7 @@ export function history(obj: History, undo: null | boolean = null) {
     // deselect selected
     // not when changing multiple selected slides OR changing slide transition
     if (obj.location?.page !== "edit" && obj.id !== "SHOW_LAYOUT") {
-        selected.set({ id: null, data: [] })
+        deselect()
     }
 
     console.log("UNDO: ", [...get(undoHistory)])
@@ -278,7 +287,7 @@ export function history(obj: History, undo: null | boolean = null) {
 
 export const undo = () => {
     if (!get(undoHistory).length) return
-    if (document.activeElement?.classList?.contains("edit")) return
+    if (document.activeElement?.classList?.contains("edit") && !document.activeElement?.closest(".editItem")) return
 
     let lastUndo: History
     undoHistory.update((uh: History[]) => {
@@ -297,7 +306,7 @@ export const undo = () => {
 
 export const redo = () => {
     if (!get(redoHistory).length) return
-    if (document.activeElement?.classList?.contains("edit")) return
+    if (document.activeElement?.classList?.contains("edit") && !document.activeElement?.closest(".editItem")) return
 
     let lastRedo: History
     redoHistory.update((rh: History[]) => {

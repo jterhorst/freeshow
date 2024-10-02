@@ -1,26 +1,33 @@
 <script lang="ts">
     import type { Item } from "../../../../types/Show"
-    import { activeDrawerTab, drawer, drawerTabsData, variables } from "../../../stores"
+    import { activeDrawerTab, drawer, variables } from "../../../stores"
+    import { setDrawerTabData } from "../../helpers/historyHelpers"
+    import { replaceDynamicValues } from "../../helpers/showActions"
 
+    export let id: string = ""
     export let item: null | Item = null
     export let style: string = ""
     export let edit: boolean = false
-    $: console.log(item)
+    export let hideText: boolean = true
+    export let ref: any = {}
 
-    $: variable = $variables[item?.variable?.id] || {}
+    $: variable = $variables[id || item?.variable?.id] || {}
 
     function openInDrawer() {
         if (!edit) return
 
-        drawerTabsData.update((a) => {
-            a.calendar.activeSubTab = "variables"
-            return a
-        })
-        activeDrawerTab.set("overlays")
+        setDrawerTabData("functions", "variables")
+        activeDrawerTab.set("functions")
 
         // open drawer if closed
         if ($drawer.height <= 40) drawer.set({ height: $drawer.stored || 300, stored: null })
     }
+
+    // UPDATE DYNAMIC VALUES e.g. {time_} EVERY SECOND
+    let updateDynamic = 0
+    setInterval(() => {
+        updateDynamic++
+    }, 1000)
 </script>
 
 <div class="align" style="{style}{item?.align || ''}" on:dblclick={openInDrawer}>
@@ -28,7 +35,7 @@
         {#if variable.type === "number"}
             {Number(variable.number || 0)}
         {:else if variable.type === "text"}
-            {variable.text || ""}
+            {variable.enabled === false && hideText ? "" : replaceDynamicValues(variable.text || "", ref, updateDynamic)}
         {/if}
     </div>
 </div>

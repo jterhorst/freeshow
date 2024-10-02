@@ -8,37 +8,36 @@
 
     const dispatch = createEventDispatcher()
     export let options: Option[]
+    export let id: string = ""
     export let disabled: boolean = false
     export let center: boolean = false
     export let arrow: boolean = false
     let active: boolean = false
-    export let value: any
+    export let value: string
+    export let activeId: string = ""
     export let title: string = ""
+    export let flags: boolean = false
     let normalizedValue: any = value
     $: (normalizedValue = value || options[0]?.name || "—"), $language
-    // TODO: disable active on click anywhere
 
     let self: HTMLDivElement
 
     let nextScrollTimeout: any = null
     function wheel(e: any) {
-        if (disabled) return
-        if (nextScrollTimeout) return
-
+        if (disabled || nextScrollTimeout) return
         e.preventDefault()
-        let index = options.findIndex((a) => a.name === (value.name || value))
+
+        let index = options.findIndex((a) => (activeId ? a.id === activeId : a.name === value))
         if (e.deltaY > 0) index = Math.min(options.length - 1, index + 1)
         else index = Math.max(0, index - 1)
         dispatch("click", options[index])
 
         // don't start timeout if scrolling with mouse
-        if (e.deltaY > 100 || e.deltaY < -100) return
+        if (e.deltaY >= 100 || e.deltaY <= -100) return
         nextScrollTimeout = setTimeout(() => {
             nextScrollTimeout = null
         }, 500)
     }
-
-    // TODO: scroll don't work with multiple of the same name (e.g. EditTimer.svelte)
 
     $: if (active) scrollToActive()
     function scrollToActive() {
@@ -46,6 +45,7 @@
         if (!id) return
 
         setTimeout(() => {
+            if (!self) return
             let activeElem = self.querySelector("#" + id)
             activeElem?.scrollIntoView()
         }, 10)
@@ -64,47 +64,61 @@
     }}
 />
 
-<div class:disabled class:center bind:this={self} class="dropdownElem" style="position: relative;{$$props.style || ''}">
-    <button {title} on:click={() => (disabled ? null : (active = !active))} on:wheel={wheel}>
+<div class:disabled class:center class:flags bind:this={self} class="dropdownElem" style="position: relative;{$$props.style || ''}">
+    <button {id} {title} on:click={() => (disabled ? null : (active = !active))} on:wheel={wheel}>
         {#if arrow}
             <Icon id="expand" size={1.2} white />
         {:else}
             {translate(normalizedValue, { parts: true }) || value}
-            <!-- <T id={value} /> -->
         {/if}
     </button>
     {#if active}
         <div class="dropdown" class:arrow style={$$props.style || ""} transition:slide={{ duration: 200 }}>
             {#each options as option}
-                <!-- {#if option.name !== value} -->
                 <span
                     id={formatId(option.name)}
                     on:click={() => {
                         if (disabled) return
-                        dispatch("click", option)
                         active = false
+                        // allow dropdown to close before updating, so svelte visual bug don't duplicate inputs on close transition in boxstyle edit etc.
+                        setTimeout(() => {
+                            dispatch("click", option)
+                        }, 50)
                     }}
-                    class:active={option.name === value}
+                    class:active={activeId && option?.id ? option.id === activeId : option.name === value}
                 >
                     {translate(option.name, { parts: true }) || option.name}
                     {#if option.extra}
                         ({option.extra})
                     {/if}
-                    <!-- <T id={option.name} /> -->
                 </span>
-                <!-- {/if} -->
             {/each}
         </div>
     {/if}
 </div>
 
 <style>
+    .dropdownElem.flags {
+        font-family:
+            "NotoColorEmojiLimited",
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            Roboto,
+            Oxygen-Sans,
+            Ubuntu,
+            Cantarell,
+            "Helvetica Neue",
+            sans-serif !important;
+    }
+
     div {
         /* width: fit-content;
     min-width: 200px; */
         background-color: var(--primary-darker);
         color: var(--text);
         /* position: relative; */
+        border-radius: var(--border-radius);
     }
 
     div.disabled {
@@ -151,6 +165,7 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        border-radius: var(--border-radius);
     }
 
     button {

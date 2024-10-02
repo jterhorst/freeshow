@@ -34,13 +34,30 @@ export function removeEmpty(array: any[]): any[] {
     return array.filter((a: any): number => a.length)
 }
 
+// remove duplicates from array (only lowest level)
+export function removeDuplicates(array: any[]): any[] {
+    return [...new Set(array)]
+}
+
+// sort array (or event object) by time in ascending order
+export function sortByTime(a, b) {
+    if (a.from) a = a.from
+    if (b.from) b = b.from
+    return new Date(a).getTime() - new Date(b).getTime()
+}
+
 // OBJETS
 
+// sort objects in array by name
+export function sortByName(arr: any[], key: string = "name") {
+    return arr.filter((a) => typeof a[key] === "string").sort((a, b) => a[key].localeCompare(b[key]))
+}
+
 // sort objects in array alphabeticly
-export function sortObject(object: {}[], key: string): {}[] {
+export function sortObject(object: any[], key: string): any[] {
     return object.sort((a: any, b: any) => {
-        let textA: string = a[key]
-        let textB: string = b[key]
+        let textA: string = a[key] || ""
+        let textB: string = b[key] || ""
         if (a.default === true) textA = translate(textA) || textA.slice(textA.indexOf("."))
         if (b.default === true) textB = translate(textB) || textB.slice(textB.indexOf("."))
 
@@ -55,16 +72,40 @@ export function sortObjectNumbers(object: {}[], key: string, reverse: boolean = 
     })
 }
 
+// sort any object.name by numbers in the front of the string
+export function sortByNameAndNumber(array: any[]) {
+    return array.sort((a, b) => {
+        let aName = a.name || ""
+        let bName = b.name || ""
+
+        // get numbers in front of name
+        const matchA = aName.match(/^\d+/)
+        const matchB = bName.match(/^\d+/)
+        const numA = matchA ? parseInt(matchA[0], 10) : Infinity
+        const numB = matchB ? parseInt(matchB[0], 10) : Infinity
+
+        if (numA !== numB) return numA - numB
+
+        return aName.localeCompare(bName)
+    })
+}
+
 // move keys to IDs in object and return array
 export function keysToID(object: { [key: string]: any }): any[] {
     if (!object) return []
-    let newObjects: any[] = Object.entries(object).map(([id, a]) => ({ id, ...a }))
+    let newObjects: any[] = Object.entries(object).map(([id, a]) => ({ ...a, id }))
     return newObjects
 }
 
 // remove values in array object where key is value
 export function removeValues(object: any[], key: string, value: any): any[] {
     return object.filter((o: any) => o[key] !== value)
+}
+
+// remove deleted values (used by cloud sync)
+export function removeDeleted<T>(object: T): T {
+    if (!Array.isArray(object)) return object
+    return (object as any).filter((o) => !o.deleted)
 }
 
 // change values from one object to another
@@ -77,8 +118,8 @@ export function changeValues(object: any, values: { [key: string]: any }) {
 }
 
 // clone objects
-export function clone(object: any) {
-    if (!object) return object
+export function clone<T>(object: T): T {
+    if (typeof object !== "object") return object
     return JSON.parse(JSON.stringify(object))
 }
 
@@ -95,4 +136,14 @@ export function slowLoop(array, interval, returnFunc) {
             }, interval)
         }
     }
+}
+
+// randomize array items
+export function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[array[i], array[j]] = [array[j], array[i]]
+    }
+
+    return array
 }

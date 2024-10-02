@@ -1,5 +1,8 @@
 <script lang="ts">
-    import { activeStage, stageShows } from "../../stores"
+    import { OUTPUT } from "../../../types/Channels"
+    import { activeStage, currentWindow, stageShows } from "../../stores"
+    import { send } from "../../utils/request"
+    import { keysToID, sortByName } from "../helpers/array"
     import { history } from "../helpers/history"
     import { getStyles } from "../helpers/style"
     import T from "../helpers/T.svelte"
@@ -10,6 +13,10 @@
     import Snaplines from "../system/Snaplines.svelte"
     import { updateStageShow } from "./stage"
     import Stagebox from "./Stagebox.svelte"
+
+    export let outputId: string = ""
+    export let stageId: string = ""
+    export let edit: boolean = true
 
     let lines: [string, number][] = []
     let mouse: any = null
@@ -24,7 +31,7 @@
         } else newStyles = {}
     }
 
-    $: if ($activeStage.id === null && Object.keys($stageShows).length) activeStage.set({ id: Object.keys($stageShows)[0], items: [] })
+    $: if ($activeStage.id === null && Object.keys($stageShows).length) activeStage.set({ id: sortByName(keysToID($stageShows))[0]?.id, items: [] })
 
     function setStyles() {
         let items: any = $stageShows[$activeStage.id!].items
@@ -54,25 +61,38 @@
 
     let timeout: any = null
 
-    $: show = $stageShows[$activeStage.id || ""] || {}
+    $: stageShowId = stageId || $activeStage.id
+    $: show = $stageShows[stageShowId || ""] || {}
+
+    let noOverflow = true
+
+    // get video time
+    $: if ($currentWindow === "output" && Object.keys(show.items || {}).find((id) => id.includes("video"))) requestVideoData()
+    let interval: any = null
+    function requestVideoData() {
+        if (interval) return
+        interval = setInterval(() => send(OUTPUT, ["MAIN_REQUEST_VIDEO_DATA"], { id: outputId }), 1000) // , stageId
+    }
 </script>
 
-<Main slide={$activeStage.id ? show : null} let:width let:height let:resolution>
-    <div class="parent">
-        {#if $activeStage.id}
+<Main slide={stageShowId ? show : null} let:width let:height let:resolution>
+    <div class="parent" class:noOverflow>
+        {#if stageShowId}
             <!-- TODO: stage resolution... -->
-            <Zoomed background={show.settings.color || "#000000"} style={getStyleResolution(resolution, width, height, "fit")} bind:ratio disableStyle hideOverflow={false} center>
+            <Zoomed background={show.settings?.color || "#000000"} style={getStyleResolution(resolution, width, height, "fit")} bind:ratio disableStyle hideOverflow={!edit} center>
                 <!-- TODO: snapping to top left... -->
-                <Snaplines bind:lines bind:newStyles bind:mouse {ratio} {active} />
+                {#if edit}
+                    <Snaplines bind:lines bind:newStyles bind:mouse {ratio} {active} />
+                {/if}
                 <!-- {#key Slide} -->
-                {#each Object.entries(show.items) as [id, item]}
+                {#each Object.entries(show.items || {}) as [id, item]}
                     {#if item.enabled}
-                        <Stagebox edit {id} {item} {ratio} bind:mouse />
+                        <Stagebox {edit} show={edit ? null : show} {id} {item} {ratio} bind:mouse />
                     {/if}
                 {/each}
                 <!-- {/key} -->
             </Zoomed>
-        {:else}
+        {:else if edit}
             <Center size={2} faded>
                 <T id="empty.stage_show" />
             </Center>
@@ -92,6 +112,10 @@
         align-items: center;
         /* padding: 10px; */
         overflow: auto;
+    }
+
+    .parent.noOverflow {
+        overflow: hidden;
     }
 
     /* .bar {

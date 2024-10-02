@@ -6,7 +6,7 @@
 
     export let settings: any = {}
 
-    $: currentOutput = $outputs[getActiveOutputs()[0]]
+    $: currentOutput = $outputs[getActiveOutputs()[0]] || {}
     $: currentLayout = currentOutput.out?.slide ? _show(currentOutput.out.slide.id).layouts([currentOutput.out.slide.layout]).ref()[0] : []
     $: currentSlide = currentOutput.out?.slide ? (currentOutput.out.slide.id === "temp" ? { items: currentOutput.out.slide.tempItems } : _show(currentOutput.out.slide.id).slides([currentLayout![currentOutput.out.slide.index!].id]).get()[0]) : null
     $: resolution = getResolution(currentSlide?.settings?.resolution, { $outputs, $styles })
@@ -25,6 +25,8 @@
     })
 
     function redraw() {
+        if (!ctx) return
+
         for (var i = 1; i < lines.length; i++) {
             let previous: any = lines[i - 1]
             let current: any = lines[i]
@@ -42,8 +44,12 @@
         }
     }
 
+    // TODO: history!
+
     $: if (settings.clear) clear()
     function clear() {
+        if (!ctx) return
+
         ctx.clearRect(0, 0, resolution.width, resolution.height)
         lines = []
         paintCache.set([])
@@ -102,7 +108,7 @@
         if ($draw !== null && !mouseDown) mouseDown = true
         else if ($draw === null) mouseDown = false
     }
-    $: if (mouseDown) {
+    $: if (mouseDown && ctx) {
         ctx.beginPath()
         previousPos = $draw
         // ctx.moveTo(previousPos.x, previousPos.y)

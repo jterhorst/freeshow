@@ -48,14 +48,23 @@
         })
     }
 
-    const tools: string[] = ["Focus", "Pointer", "Particles"]
+    const tools: string[] = ["Focus", "Pointer", "Particles", "Paint"]
     let tool = "Focus"
     function changeTool(e: any) {
         tool = e.target.value
     }
+
+    // keyboard shortcuts
+    function keydown(e: any) {
+        if ([" ", "Arrow", "Page"].includes(e.key)) e.preventDefault()
+
+        if ([" ", "ArrowRight", "PageDown"].includes(e.key)) sendAction("next")
+        else if (["ArrowLeft", "PageUp"].includes(e.key)) sendAction("previous")
+        else if (e.key === "Escape") sendAction("clear")
+    }
 </script>
 
-<svelte:window on:mouseup={mouseup} on:touchend={mouseup} on:mousemove={mousemove} on:touchmove={mousemove} />
+<svelte:window on:keydown={keydown} on:mouseup={mouseup} on:touchend={mouseup} on:mousemove={mousemove} on:touchmove={mousemove} />
 
 {#if draw}
     <div class="draw">
@@ -64,7 +73,14 @@
                 <option value={tool}>{tool}</option>
             {/each}
         </select>
+
         <div bind:this={padElem} class="pad" on:mousedown={mousedown} on:touchstart={mousedown} />
+
+        {#if tool === "Paint"}
+            <button on:click={() => sendAction("clear_painting")} title="Clear painting">
+                <Icon id="clear" size={2} white right />
+            </button>
+        {/if}
     </div>
 {:else}
     <div class="controller">
@@ -200,6 +216,12 @@
         border-radius: 50%;
         overflow: hidden;
     }
+    @media only screen and (min-width: 600px) {
+        .controller {
+            height: 80vh;
+            width: 80vh;
+        }
+    }
 
     .quart {
         position: absolute;
@@ -244,8 +266,14 @@
     }
 
     button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
         border: none;
         cursor: pointer;
+        padding: 5px;
+        border-radius: 5px;
         background-color: var(--primary-darkest);
     }
     button:active {

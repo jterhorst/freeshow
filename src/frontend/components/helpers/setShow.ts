@@ -1,8 +1,11 @@
 import { get } from "svelte/store"
 import { SHOW } from "../../../types/Channels"
 import type { Show } from "../../../types/Show"
-import { cachedShowsData, notFound, shows, showsCache, showsPath, textCache } from "../../stores"
-import { updateCachedShow } from "./show"
+import { cachedShowsData, notFound, saved, shows, showsCache, showsPath, textCache } from "../../stores"
+import { getShowCacheId, updateCachedShow } from "./show"
+import { uid } from "uid"
+import { destroy } from "../../utils/request"
+import { fixShowIssues } from "../../converters/importHelpers"
 
 export function setShow(id: string, value: "delete" | Show): Show {
     let previousValue: Show
@@ -12,9 +15,18 @@ export function setShow(id: string, value: "delete" | Show): Show {
         let showRef = get(shows)[id]
         if (showRef && value) {
             value.name = showRef.name
-            value.category = showRef.category
-            value.timestamps = showRef.timestamps
+            value.category = showRef.category || null
+            value.timestamps = showRef.timestamps || {}
+            value.quickAccess = showRef.quickAccess || {}
             if (showRef.private) value.private = true
+            if (showRef.locked) value.locked = true
+
+            // fix "broken" shows:
+            if (!value.settings) value.settings = { activeLayout: "", template: null }
+            if (!value.meta) value.meta = {}
+            if (!value.slides) value.slides = {}
+            if (!value.layouts) value.layouts = {}
+            if (!value.media) value.media = {}
         }
     }
 
@@ -37,19 +49,22 @@ export function setShow(id: string, value: "delete" | Show): Show {
                 name: value.name,
                 category: value.category,
                 timestamps: value.timestamps,
+                quickAccess: value.quickAccess,
             }
 
             if (value.private) a[id].private = true
+            if (value.locked) a[id].locked = true
         }
 
         return a
     })
 
-    console.log("SHOW UPDATED: ", id, value)
+    console.info("SHOW UPDATED: ", id, value)
 
     if (value && value !== "delete") {
         cachedShowsData.update((a) => {
-            a[id] = updateCachedShow(id, value)
+            let customId = getShowCacheId(id, get(showsCache)[id])
+            a[customId] = updateCachedShow(id, value)
             return a
         })
     }
@@ -64,6 +79,8 @@ export function setShow(id: string, value: "delete" | Show): Show {
 }
 
 export async function loadShows(s: string[]) {
+    let savedWhenLoading: boolean = get(saved)
+
     return new Promise((resolve) => {
         let count = 0
 
@@ -76,15 +93,22 @@ export async function loadShows(s: string[]) {
                 })
                 // resolve("not_found")
             } else if (!get(showsCache)[id]) {
-                console.log("LOAD SHOWS:", s)
                 window.api.send(SHOW, { path: get(showsPath), name: get(shows)[id].name, id })
             } else count++
             // } else resolve("already_loaded")
         })
+        if (s.length - count) console.info(`LOADING ${s.length - count} SHOW(S)`)
 
         // RECEIVE
-        window.api.receive(SHOW, (msg: any) => {
+        let listenerId = uid()
+        window.api.receive(SHOW, receiveShow, listenerId)
+        function receiveShow(msg: any) {
+            if (!s.includes(msg.id)) return
             count++
+
+            // prevent receiving multiple times
+            if (count >= s.length + 1) return
+
             if (msg.error) {
                 notFound.update((a) => {
                     a.show.push(msg.id)
@@ -99,40 +123,40 @@ export async function loadShows(s: string[]) {
                     })
                 }
 
-                setShow(msg.id || msg.content[0], msg.content[1])
+                let show = fixShowIssues(msg.content[1])
+                setShow(msg.id || msg.content[0], show)
             }
-            // console.log(count, s, msg, "LOAD")
 
-            if (count >= s.length) {
+            if (count >= s.length) setTimeout(finished, 50)
+        }
+        if (count >= s.length) finished()
+
+        function finished() {
+            if (savedWhenLoading) {
                 setTimeout(() => {
-                    resolve("loaded")
-                }, 50)
+                    saved.set(true)
+                }, 100)
             }
-        })
-        if (count >= s.length) resolve("loaded")
+
+            destroy(SHOW, listenerId)
+            resolve("loaded")
+        }
     })
 }
 
+let updateTimeout: any = null
+let tempCache: any = {}
 export function saveTextCache(id: string, show: Show) {
     if (!show?.slides) return
 
-    // get text
-    let txt = ""
-    Object.values(show.slides).forEach((slide) => {
-        slide.items.forEach((item) => {
-            item.lines?.forEach((line) => {
-                line.text?.forEach((text) => {
-                    txt += text.value
-                })
-                txt += " "
-            })
-            // txt += " - LINE - "
-        })
-    })
-
-    // trim
-    txt = txt.toLowerCase()
-    // txt = txt.toLowerCase().replace(/[^a-z0-9 ]+/g, "")
+    const txt = Object.values(show.slides)
+        .flatMap((slide) => slide.items)
+        .flatMap((item) => item.lines || [])
+        .flatMap((line) => line.text || [])
+        .map((text) => text.value)
+        .join(" ")
+        .toLowerCase()
+    // .replace(/[^a-z0-9 ]+/g, "")
 
     // encode
     // txt = window.btoa(txt)
@@ -140,8 +164,12 @@ export function saveTextCache(id: string, show: Show) {
     // Buffer.from(encode, 'base64').toString('utf-8')
     // window.atob(encode)
 
-    textCache.update((a) => {
-        a[id] = txt
-        return a
-    })
+    tempCache[id] = txt
+
+    // prevent rapid updates
+    if (updateTimeout) clearTimeout(updateTimeout)
+    updateTimeout = setTimeout(() => {
+        textCache.set({ ...get(textCache), ...tempCache })
+        tempCache = {}
+    }, 1000)
 }

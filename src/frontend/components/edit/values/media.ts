@@ -19,7 +19,8 @@ export const mediaEdits: Box = {
                         ],
                     },
                 },
-                { name: "media.flip", id: "flipped", input: "checkbox", value: false },
+                { name: "media.flip_horizontally", id: "flipped", input: "checkbox", value: false },
+                { name: "media.flip_vertically", id: "flippedY", input: "checkbox", value: false },
             ],
         },
     },
@@ -45,6 +46,20 @@ export const videoEdit = [
             ],
         },
     },
+    {
+        name: "inputs.start",
+        id: "fromTime",
+        input: "number",
+        value: 0,
+        values: { max: 100000 },
+    },
+    {
+        name: "inputs.end",
+        id: "toTime",
+        input: "number",
+        value: 0,
+        values: { max: 100000 },
+    },
 ]
 
 export const mediaFilters: Box = {
@@ -61,7 +76,7 @@ export const mediaFilters: Box = {
                 { name: "filter.brightness", id: "filter", key: "brightness", input: "number", value: 1, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 } },
                 { name: "filter.contrast", id: "filter", key: "contrast", input: "number", value: 1, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 } },
                 { name: "filter.saturate", id: "filter", key: "saturate", input: "number", value: 1, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 } },
-                { name: "filter.opacity", id: "filter", key: "opacity", input: "number", value: 1, values: { max: 1, step: 0.1, decimals: 1, inputMultiplier: 10 } },
+                { name: "filter.opacity", id: "filter", key: "opacity", input: "number", value: 1, values: { max: 1, step: 0.02, decimals: 2, inputMultiplier: 100 } },
             ],
         },
     },

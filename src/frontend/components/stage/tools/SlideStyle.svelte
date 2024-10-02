@@ -1,9 +1,8 @@
 <script lang="ts">
     import { activeStage, outputs, stageShows } from "../../../stores"
-    import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
+    import { keysToID, sortByName } from "../../helpers/array"
     import { history } from "../../helpers/history"
-    import Button from "../../inputs/Button.svelte"
     import Checkbox from "../../inputs/Checkbox.svelte"
     import Color from "../../inputs/Color.svelte"
     import CombinedInput from "../../inputs/CombinedInput.svelte"
@@ -43,19 +42,12 @@
     // password
 
     let outputList: any[] = []
-    $: outputList = Object.entries($outputs)
-        .map(([id, a]) => ({ id, ...a }))
-        .filter((a) => !a.isKeyOutput)
-        .sort((a, b) => a.name.localeCompare(b.name))
-
-    function reset() {
-        history({ id: "UPDATE", newData: { data: { color: "#000000" }, key: "settings" }, oldData: { id: $activeStage.id }, location: { page: "stage", id: "stage" } })
-    }
+    $: outputList = sortByName(keysToID($outputs).filter((a) => !a.isKeyOutput && !a.stageOutput))
 </script>
 
 <div class="section">
     <CombinedInput>
-        <p><T id="midi.output" /></p>
+        <p><T id="stage.source_output" /></p>
         <Dropdown
             style="width: 100%;"
             options={[{ id: "", name: "—" }, ...outputList]}
@@ -75,6 +67,19 @@
             <Checkbox checked={settings.autoStretch ?? true} on:change={(e) => toggleValue(e, "autoStretch")} />
         </div>
     </CombinedInput>
+
+    <CombinedInput>
+        <p><T id="stage.labels" /></p>
+        <div class="alignRight">
+            <Checkbox checked={settings.labels ?? false} on:change={(e) => toggleValue(e, "labels")} />
+        </div>
+    </CombinedInput>
+    {#if settings.labels}
+        <CombinedInput>
+            <p><T id="stage.label_color" /></p>
+            <Color value={settings.labelColor || "#ac9c35"} on:input={(e) => updateStageSettings(e.detail, "labelColor")} />
+        </CombinedInput>
+    {/if}
 
     <!-- <h6><T id="settings.resolution" /></h6>
   <CombinedInput>
@@ -104,13 +109,6 @@
   <div class="notes">
       <Notes value={note} on:edit={edit} />
   </div> -->
-</div>
-
-<div class="bottom">
-    <Button style="flex: 1;" on:click={reset} dark center>
-        <Icon id="reset" right />
-        <T id={"actions.reset"} />
-    </Button>
 </div>
 
 <!-- <EditValues edits={textEdits} styles={data} {item} on:change={updateStyle} /> -->
@@ -145,11 +143,4 @@
         display: block;
         background: var(--primary-darker);
     } */
-
-    .bottom {
-        display: flex;
-        position: absolute;
-        bottom: 0;
-        width: 100%;
-    }
 </style>

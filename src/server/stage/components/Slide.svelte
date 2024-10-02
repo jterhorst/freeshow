@@ -12,6 +12,9 @@
 
     export let show: Show
     export let slides: any
+    export let socketId: string = ""
+    export let socket: any
+    export let stream: any
     export let background: any
 
     let width: number = 0
@@ -24,11 +27,11 @@
 <div class="main" bind:offsetWidth={width} bind:offsetHeight={height}>
     <div class="slide">
         {#key show.settings.autoStretch}
-            <Zoomed {show} style={getStyleResolution(resolution, width, height) + ";" + (show.settings.color ? `background-color: ${show.settings.color};` : "")} dynamicResolution={show.settings.autoStretch !== false} disableStyle>
+            <Zoomed {show} style={getStyleResolution(resolution, width, height) + ";" + `background-color: ${show.settings.color || "#000000"};`} dynamicResolution={show.settings.autoStretch !== false} disableStyle>
                 {#each Object.entries(show.items) as [id, item]}
                     {#if item.enabled}
                         {#key show}
-                            <Stagebox {show} {id} {item} {slides} {background} />
+                            <Stagebox {show} {id} {item} {slides} {socketId} {socket} {stream} {background} />
                         {/key}
                     {/if}
                 {/each}

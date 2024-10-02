@@ -10,21 +10,19 @@ export interface ContextMenuItem {
     disabled?: boolean
 }
 
-// WIP get Cmd when on MacOS
-const ctrl = "Ctrl" // get(os).platform === "darwin" ? "Cmd" :
-
 export const contextMenuItems: { [key: string]: ContextMenuItem } = {
     // MENU
-    save: { label: "actions.save", icon: "save", shortcuts: [ctrl + "+S"] },
-    import: { label: "actions.import", icon: "import", shortcuts: [ctrl + "+I"] },
-    export_more: { label: "actions.export", icon: "export", shortcuts: [ctrl + "+E"] },
-    undo: { label: "actions.undo", icon: "undo", shortcuts: [ctrl + "+Z"] },
-    redo: { label: "actions.redo", icon: "redo", shortcuts: [ctrl + "+Y"] },
-    history: { label: "popup.history", icon: "history", shortcuts: [ctrl + "+H"] },
-    cut: { label: "actions.cut", icon: "cut", shortcuts: [ctrl + "+X"] },
-    copy: { label: "actions.copy", icon: "copy", shortcuts: [ctrl + "+C"] },
-    paste: { label: "actions.paste", icon: "paste", shortcuts: [ctrl + "+V"] },
+    save: { label: "actions.save", icon: "save", shortcuts: ["Ctrl+S"] },
+    import: { label: "actions.import", icon: "import", shortcuts: ["Ctrl+I"] },
+    export_more: { label: "actions.export", icon: "export", shortcuts: ["Ctrl+E"] },
+    undo: { label: "actions.undo", icon: "undo", shortcuts: ["Ctrl+Z"] },
+    redo: { label: "actions.redo", icon: "redo", shortcuts: ["Ctrl+Y"] },
+    history: { label: "popup.history", icon: "history", shortcuts: ["Ctrl+H"] },
+    cut: { label: "actions.cut", icon: "cut", shortcuts: ["Ctrl+X"] },
+    copy: { label: "actions.copy", icon: "copy", shortcuts: ["Ctrl+C"] },
+    paste: { label: "actions.paste", icon: "paste", shortcuts: ["Ctrl+V"] },
     docs: { label: "main.docs", icon: "document" },
+    focus_mode: { label: "actions.focus_mode", icon: "focus_mode" },
     fullscreen: { label: "actions.fullscreen", icon: "fullscreen", shortcuts: ["F11"] },
     resetZoom: { label: "actions.resetZoom", icon: "reset" },
     zoomIn: { label: "actions.zoomIn", icon: "zoomIn" },
@@ -33,43 +31,51 @@ export const contextMenuItems: { [key: string]: ContextMenuItem } = {
     quit: { label: "main.quit", icon: "close" },
     settings: { label: "menu.settings", icon: "settings" },
     about: { label: "main.about", icon: "info" },
-    shortcuts: { label: "popup.shortcuts", icon: "shortcut", shortcuts: [ctrl + "+?"] },
+    shortcuts: { label: "popup.shortcuts", icon: "shortcut", shortcuts: ["Ctrl+?"] },
     rename: { label: "actions.rename", icon: "rename", shortcuts: ["F2"] },
     delete: { label: "actions.delete", icon: "delete", shortcuts: ["Del"] },
     delete_all: { label: "actions.delete_all", icon: "delete" },
     export: { label: "actions.export", icon: "export" },
     // DRAWER
     enabledTabs: { label: "context.enabledTabs", items: ["LOAD_enabled_drawer_tabs"] },
+    tags: { label: "context.filterByTags", icon: "tag", items: ["LOAD_tags"] },
     newCategory: { label: "context.newCategory", icon: "add" },
     newScripture: { label: "new.scripture", icon: "add" },
     createCollection: { label: "new.collection", icon: "collection" },
-    changeIcon: { label: "context.changeIcon", icon: "noIcon" },
+    changeIcon: { label: "context.changeIcon", icon: "star" },
     toggle_clock: { label: "context.toggle_clock", icon: "clock" },
     // OUTPUTS
     force_output: { label: "context.force_outputs", icon: "outputs" },
+    align_with_screen: { label: "context.align_with_screen", icon: "resize" },
+    choose_screen: { label: "popup.choose_screen", icon: "screen" },
     toggle_output: { label: "context.toggle_output", icon: "outputs" },
     move_to_front: { label: "context.move_to_front", icon: "toFront" },
+    hide_from_preview: { label: "context.hide_from_preview", icon: "hide" },
     // PROJECT
     close: { label: "actions.close", icon: "close" },
     newProject: { label: "new.project", icon: "project" },
     newFolder: { label: "new.folder", icon: "folder" },
     newShowPopup: { label: "new.show", icon: "add" },
     newShow: { label: "new.empty_show", icon: "add" },
-    newPrivateShow: { label: "new.private", icon: "private" },
+    create_show: { label: "new.show", icon: "slide" },
+    // newPrivateShow: { label: "new.private", icon: "private" },
     private: { label: "actions.toggle_private", icon: "private" },
-    duplicate: { label: "actions.duplicate", icon: "duplicate", shortcuts: [ctrl + "+D"] },
+    duplicate: { label: "actions.duplicate", icon: "duplicate", shortcuts: ["Ctrl+D"] },
     section: { label: "new.section", icon: "section" },
     // SORT
     sort_shows_by: { label: "sort.sort_by", icon: "sort", items: ["LOAD_sort_shows"] },
     sort_projects_by: { label: "sort.sort_by", icon: "sort", items: ["LOAD_sort_projects"] },
     // SHOWS
     addToProject: { label: "context.addToProject", icon: "project" },
+    lock_show: { label: "context.lockForChanges", icon: "lock" },
     remove: { label: "actions.remove", icon: "remove" },
     remove_group: { label: "actions.remove", icon: "remove" },
     remove_slide: { label: "actions.remove_group", icon: "remove", shortcuts: ["Del"] },
-    delete_slide: { label: "actions.delete", icon: "delete" },
+    delete_slide: { label: "actions.delete_slide", icon: "delete" },
+    delete_group: { label: "actions.delete_group", icon: "delete", shortcuts: ["Del"] },
     slideGroups: { label: "context.changeGroup", icon: "groups", items: ["rename", "recolor", "remove_group", "SEPERATOR", "LOAD_slide_groups"] },
-    selectAll: { label: "context.selectAll", icon: "select", shortcuts: [ctrl + "+A"] },
+    editSlideText: { label: "menu.edit", icon: "edit" }, // actions.edit_slide_text
+    selectAll: { label: "context.selectAll", icon: "select", shortcuts: ["Ctrl+A"] },
     newSlide: { label: "new.slide", icon: "add" },
     // newGroup: { label: "context.createNew", icon: "add" },
     // SLIDE VIEWS
@@ -83,24 +89,33 @@ export const contextMenuItems: { [key: string]: ContextMenuItem } = {
     disable: { label: "actions.disable", icon: "disable" },
     edit: { label: "menu.edit", icon: "edit" },
     recolor: { label: "actions.recolor", icon: "color" },
-    actions: { label: "actions.actions", icon: "actions", items: ["LOAD_actions"] },
-    item_actions: { label: "actions.actions", icon: "actions", items: ["LOAD_item_actions"] },
+    actions: { label: "actions.slide_actions", icon: "actions", items: ["LOAD_actions"] },
+    bind_to: { label: "actions.bind_to", icon: "bind", items: ["LOAD_bind_slide"] },
     remove_layers: { label: "actions.remove_layers", icon: "remove_layers", items: ["LOAD_remove_layers"] },
     set_key: { label: "actions.set_key", icon: "chords", items: ["LOAD_keys"] },
     chord_list: { label: "edit.chords", icon: "chords", items: ["LOAD_chord_list"] },
     custom_key: { label: "actions.custom_key", icon: "edit" },
     // ITEM
-    bind_to: { label: "actions.bind_to", icon: "bind", items: ["LOAD_output_list"] },
-    format: { label: "actions.format", icon: "format", items: ["find_replace", "cut_in_half", "SEPERATOR", "uppercase", "lowercase", "capitalize", "trim"] },
+    item_actions: { label: "actions.item_actions", icon: "actions", items: ["LOAD_item_actions"] },
+    dynamic_values: { label: "actions.dynamic_values", icon: "star", items: ["LOAD_dynamic_values"] },
+    item_bind_to: { label: "actions.bind_to", icon: "bind", items: ["LOAD_bind_item"] },
+    format: { label: "actions.format", icon: "format", items: ["find_replace", "cut_in_half", "merge", "SEPERATOR", "uppercase", "lowercase", "capitalize", "trim"] },
+    rearrange: { label: "actions.rearrange", icon: "rearrange", items: ["to_front", "forward", "backward", "to_back"] },
     // stage
     stage: { label: "menu.stage", id: "stage" },
     // formatting
     find_replace: { label: "actions.find_replace", icon: "find_replace" },
     cut_in_half: { label: "actions.cut_in_half", icon: "cut_in_half" },
+    merge: { label: "actions.merge", icon: "merge" },
     uppercase: { label: "actions.uppercase", icon: "increase_text" },
     lowercase: { label: "actions.lowercase", icon: "decrease_text" },
     capitalize: { label: "actions.capitalize", icon: "capitalize" },
     trim: { label: "actions.trim", icon: "cut" },
+    // rearrange
+    to_front: { label: "actions.to_front", icon: "to_front" },
+    forward: { label: "actions.forward", icon: "up" },
+    backward: { label: "actions.backward", icon: "down" },
+    to_back: { label: "actions.to_back", icon: "to_back" },
     // MEDIA
     preview: { label: "preview.show_preview", icon: "eye" },
     play: { label: "media.play", icon: "play" },
@@ -112,6 +127,8 @@ export const contextMenuItems: { [key: string]: ContextMenuItem } = {
     // OVERLAYS
     lock_to_output: { label: "context.lock_to_output", icon: "locked" },
     place_under_slide: { label: "context.place_under_slide", icon: "under" },
+    // TEMPLATES
+    template_actions: { label: "tabs.actions", icon: "actions" },
     // STAGE
     move_connections: { label: "context.move_connections", icon: "up" },
     // SETTINGS
@@ -123,19 +140,19 @@ export const contextMenuLayouts: { [key: string]: string[] } = {
     // MENU
     file: ["save", "import", "export_more", "SEPERATOR", "quit"],
     edit: ["undo", "redo", "history", "SEPERATOR", "cut", "copy", "paste", "delete", "SEPERATOR", "selectAll"], // , "cut"
-    view: ["fullscreen"], // , "resetZoom", "zoomIn", "zoomOut"
+    view: ["focus_mode", "fullscreen"], // , "resetZoom", "zoomIn", "zoomOut"
     help: ["shortcuts", "docs", "about"],
     // MAIN
-    default: ["settings", "history", "about", "SEPERATOR", "quit"],
+    default: ["save", "settings", "history", "SEPERATOR", "about", "quit"],
     rename: ["rename"],
     close: ["close"],
+    output_window: ["close"],
 
     // TOP
-    // TODO: output
-    output: ["force_output"],
+    output: ["force_output", "SEPERATOR", "align_with_screen", "choose_screen"], // , "SEPERATOR", "edit"
 
     // OUTPUTS
-    output_active_button: ["toggle_output", "move_to_front", "edit"],
+    output_active_button: ["toggle_output", "move_to_front", "SEPERATOR", "hide_from_preview", "SEPERATOR", "edit"],
 
     // DRAWER
     drawer_top: ["enabledTabs"],
@@ -153,18 +170,19 @@ export const contextMenuLayouts: { [key: string]: string[] } = {
     category_media_button: ["rename", "delete", "SEPERATOR", "system_open"],
     category_audio_button: ["rename", "delete", "SEPERATOR", "system_open"],
     category_scripture_button: ["createCollection", "SEPERATOR", "rename", "delete"],
+    playlist: ["rename", "delete"],
     // CONTENT
-    drawer_show: ["newShowPopup", "newShow", "sort_shows_by", "selectAll"],
+    drawer_show: ["newShowPopup", "newShow", "SEPERATOR", "tags", "sort_shows_by"],
     // , "changeCategory" ? edit with rename & categories...
     // , "convertToOverlay"
     // , "SEPERATOR", "export"
-    drawer_show_button: ["addToProject", "SEPERATOR", "rename", "duplicate", "delete"],
+    drawer_show_button: ["addToProject", "lock_show", "SEPERATOR", "rename", "duplicate", "delete", "SEPERATOR", "tags", "sort_shows_by", "selectAll"],
     drawer_new_show: ["newShowPopup", "newShow"],
     // media / audio
     // "play", "play_no_filters", "SEPERATOR", "edit",
     media_preview: ["close"],
     // , "delete_all"
-    show_media: ["preview", "play", "play_no_filters", "SEPERATOR", "edit", "SEPERATOR", "system_open"],
+    show_media: ["preview", "play_no_filters", "SEPERATOR", "edit", "SEPERATOR", "system_open"],
     show_audio: ["preview", "SEPERATOR", "system_open"],
     midi: ["play", "SEPERATOR", "edit", "delete"],
     // , "addToShow"
@@ -173,44 +191,52 @@ export const contextMenuLayouts: { [key: string]: string[] } = {
     // "addToFirstSlide",
     overlay_card: ["edit", "lock_to_output", "place_under_slide", "SEPERATOR", "rename", "recolor", "duplicate", "delete"],
     // "addToShow",
-    template_card: ["edit", "SEPERATOR", "rename", "recolor", "duplicate", "delete"],
+    template_card: ["edit", "template_actions", "SEPERATOR", "rename", "recolor", "duplicate", "delete", "SEPERATOR", "export"],
     effect_card: ["edit"],
     player_button: ["addToProject", "SEPERATOR", "preview", "SEPERATOR", "rename", "delete"],
     audio_button: ["addToProject", "SEPERATOR", "preview", "favourite", "SEPERATOR", "system_open"],
+    audio_button_playlist: ["preview", "SEPERATOR", "remove"],
     // "addToFirstSlide"
     live_card: ["recording"],
+    // actions
+    action: ["duplicate"],
+    scripture_verse: ["create_show", "SEPERATOR", "selectAll"],
 
     // PROJECT
     projects: ["newProject", "newFolder", "sort_projects_by"],
     projectTab: ["export", "SEPERATOR", "close"],
-    project: ["newShowPopup", "newPrivateShow", "section"], // "newShow"(empty) , "newPrivateShow"
+    project: ["newShowPopup", "section"], // "newShow"(empty) , "newPrivateShow"
     project_button: ["rename", "duplicate", "delete", "SEPERATOR", "export"], // "open",
     folder: ["rename", "duplicate", "delete"],
     project_media: ["play", "play_no_filters", "remove"],
     project_audio: ["remove"],
     project_player: ["remove"],
-    project_show: ["rename", "private", "duplicate", "remove"],
+    project_show: ["private", "duplicate", "remove", "SEPERATOR", "rename", "delete"],
     project_section: ["remove"],
+    project_pdf: ["remove"], // "rename",
+    project_ppt: ["remove"], // "rename",
     shows: ["newSlide", "selectAll"],
     // TIMER
     timer: ["play", "edit"], // , "reset"
     global_timer: ["play", "edit", "SEPERATOR", "delete"], // , "reset"
     // VARIABLE
     variable: ["edit", "SEPERATOR", "delete"],
+    // TRIGGER
+    trigger: ["edit", "SEPERATOR", "delete"],
+    // AUDIO STREAM
+    audio_stream: ["edit", "SEPERATOR", "delete"],
 
     // SHOWS
     // , "copy", "paste"
-    slide: ["slideGroups", "actions", "format", "remove_layers", "slide_transition", "disable", "edit", "SEPERATOR", "duplicate", "delete_slide", "remove_slide"],
-    slideChild: ["slideGroups", "actions", "format", "remove_layers", "slide_transition", "disable", "edit", "SEPERATOR", "duplicate", "delete_slide", "remove_slide"],
-    group: ["rename", "recolor", "disable", "selectAll", "SEPERATOR", "duplicate", "delete"],
+    slide: ["slideGroups", "actions", "bind_to", "format", "remove_layers", "slide_transition", "disable", "edit", "SEPERATOR", "duplicate", "delete_slide", "remove_slide"],
+    slideChild: ["slideGroups", "actions", "bind_to", "format", "remove_layers", "slide_transition", "disable", "edit", "SEPERATOR", "duplicate", "delete_slide", "remove_slide"],
+    slideFocus: ["editSlideText"],
+    group: ["rename", "recolor", "selectAll", "SEPERATOR", "duplicate", "delete_group"],
     global_group: ["edit"],
     // global_group: ["rename"],
     layout: ["rename", "duplicate", "remove"],
     slideViews: ["view_grid", "view_simple", "view_list", "view_lyrics", "view_text"],
-    // TODO: change chords (m, dim, sus, left, guitar, custom value, ...)
-    // chord notations
-    // https://jazz-library.com/articles/chord-symbols/
-    // https://www.musicnotes.com/now/tips/a-complete-guide-to-chord-symbols-in-music/
+    tag: ["rename", "recolor", "SEPERATOR", "delete"],
     chord: ["set_key", "chord_list", "custom_key", "SEPERATOR", "delete"],
 
     // MEDIA
@@ -220,13 +246,14 @@ export const contextMenuLayouts: { [key: string]: string[] } = {
     stage_slide: ["move_connections", "rename", "disable", "SEPERATOR", "duplicate", "delete"],
 
     // EDIT
-    edit_box: ["bind_to", "item_actions", "format", "delete", "SEPERATOR", "duplicate", "copy", "paste"],
+    edit_box: ["item_actions", "dynamic_values", "item_bind_to", "format", "rearrange", "delete", "SEPERATOR", "duplicate", "copy", "paste"],
 
     // CALENDAR
     event: ["edit", "duplicate", "delete", "delete_all"],
 
     // SETTINGS
-    theme: ["rename", "duplicate", "delete", "SEPERATOR", "reset_theme"],
+    theme: ["rename", "duplicate", "delete", "SEPERATOR", "export", "SEPERATOR", "reset_theme"],
     style: ["rename", "duplicate", "delete", "SEPERATOR", "reset"],
     output_screen: ["rename", "recolor", "duplicate", "delete", "SEPERATOR", "reset"],
+    output_screen_stage: ["rename", "recolor", "duplicate", "delete", "SEPERATOR", "reset"],
 }

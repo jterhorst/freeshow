@@ -1,9 +1,10 @@
 <script lang="ts">
     import { selected } from "../../stores"
-    import { ondrop, validateDrop } from "../helpers/drop"
+    import { DropAreas, ondrop, validateDrop } from "../helpers/drop"
+    import { deselect } from "../helpers/select"
     import T from "../helpers/T.svelte"
 
-    export let id: "all_slides" | "slides" | "slide" | "edit" | "shows" | "project" | "projects" | "overlays" | "templates" | "navigation"
+    export let id: DropAreas
     export let selectChildren: boolean = false
     export let hoverTimeout: number = 500
     export let file: boolean = false
@@ -14,27 +15,26 @@
 
     let count: number = 0
     function enter() {
-        if (active && selectChildren) {
-            //  || fileOver
-            count++
-            setTimeout(() => {
-                if (count > 0) hover = false
-            }, hoverTimeout)
-        }
+        if (!active || !selectChildren) return
+
+        count++
+        setTimeout(() => {
+            if (count > 0) hover = false
+        }, hoverTimeout)
     }
 
     function leave(_e: any) {
-        if (active && selectChildren) {
-            //  || fileOver
-            count = Math.max(0, count - 1)
-            setTimeout(() => {
-                if (count === 0) hover = true
-            }, 10)
-        }
+        if (!active || !selectChildren) return
+
+        count = Math.max(0, count - 1)
+        setTimeout(() => {
+            if (count === 0) hover = true
+        }, 10)
     }
 
     function getFiles(e: any): any[] {
         let files: any[] = []
+
         // DataTransferItemList interface
         if (e.dataTransfer.items) {
             for (let i = 0; i < e.dataTransfer.items.length; i++) {
@@ -43,34 +43,29 @@
                     files.push(e.dataTransfer.items[i].getAsFile())
                 }
             }
-        } else {
-            // DataTransfer interface
-            for (let i = 0; i < e.dataTransfer.files.length; i++) {
-                files.push(e.dataTransfer.files[i])
-            }
+
+            return files
         }
+
+        // DataTransfer interface
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+            files.push(e.dataTransfer.files[i])
+        }
+
         return files
     }
 
     let fileOver: boolean = false
 
     function endDrag() {
-        selected.set({ id: null, data: [] })
+        deselect()
         hover = false
         // fileOver = false
     }
 </script>
 
 <svelte:window on:click={() => (hover = false)} on:dragend={endDrag} on:dragstart={() => (hover = active)} />
-<!-- on:mousemove={() => {
-    if (fileOver) hover = true
-  }}
-  on:click={() => {
-    fileOver = false
-    hover = false
-  }} -->
 
-<!-- TODO: fix position -->
 <div
     class="droparea"
     class:hover
@@ -79,7 +74,6 @@
         if (files.length) selected.set({ id: "files", data: files })
         fileOver = false
         hover = false
-        console.log(files)
         console.log($selected.id, "=>", id)
 
         if (validateDrop(id, $selected.id, true) || files.length) ondrop(e, id)
@@ -128,5 +122,9 @@
         display: flex;
         align-items: center;
         justify-content: center;
+
+        /* Starting a drop area with many slides in e.g. overlays/templates drawer is very laggy when the content is
+        smaller than the "Drop here" text (or invisible), because that creates a custom scrollbar. Here is the fix! */
+        overflow: hidden;
     }
 </style>

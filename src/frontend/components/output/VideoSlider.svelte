@@ -6,7 +6,7 @@
 
     export let videoData: any
     export let videoTime: any
-    export let outputId: string = ""
+    export let activeOutputIds: string[] = []
     export let toOutput: boolean = false
     export let disabled: boolean = false
     export let changeValue: number = 0
@@ -19,9 +19,8 @@
 
         setTimeout(() => {
             sendToOutput()
-            // if (movePause) pauseAtMove(false)
             changeValue = 0
-        }, 50)
+        })
     }
 
     let sliderValue = 0
@@ -30,53 +29,49 @@
     let time: string = "00:00"
 
     function move(e: any) {
-        // TODO: time
-        // let ratio: number = e.target.offsetWidth / videoData.duration
-        // let percentage: number = (e.offsetX / e.target.offsetWidth) % ratio
         let padding: number = 3.5
         let width: number = e.target.offsetWidth - padding * 2
         let offset: number = e.offsetX - padding
         let percentage: number = offset / width
-        // console.log(percentage)
-        // let test = (e.offsetX / e.target.clientWidth) * parseInt(videoData.duration, 10)
-        // console.log(test.toFixed(2))
 
         if (percentage < 0) percentage = 0
         else if (percentage > 1) percentage = 1
 
-        // let parsed: number = parseInt((videoData.duration * percentage).toString(), 10)
-
         time = joinTime(secondsToTime((videoData.duration || 0) * percentage))
-        // if (e.buttons && toOutput) sendToOutput(e)
     }
 
-    let changeVideoTimeout: any = null
     let latestValue: string = "0"
     function sliderInput(e: any) {
         latestValue = e?.target?.value || e
-        if (changeVideoTimeout || (!movePause && !videoData.paused) || !latestValue) return
+        if ((!movePause && !videoData.paused) || !latestValue) return
 
         videoTime = Number(latestValue)
-        if (toOutput) send(OUTPUT, ["UPDATE_VIDEO"], { id: outputId, time: videoTime })
 
-        changeVideoTimeout = setTimeout(() => {
-            changeVideoTimeout = null
-            if (!movePause || !videoData.paused) return
-            videoTime = Number(latestValue)
-            if (toOutput) send(OUTPUT, ["UPDATE_VIDEO"], { id: outputId, time: videoTime })
-        }, 80)
+        if (!toOutput) return
+
+        let timeValues: any = {}
+        activeOutputIds.forEach((id) => {
+            timeValues[id] = videoTime
+        })
+
+        send(OUTPUT, ["TIME"], timeValues)
     }
 
     const sendToOutput = (e: any = null) => {
         if (!movePause || !videoData.paused) return
-        console.log("CHANGE", e)
 
         let value = e?.target?.value
-        console.log(Number(value))
 
         if (value !== undefined) {
             videoTime = Number(value)
-            if (toOutput) send(OUTPUT, ["UPDATE_VIDEO"], { id: outputId, time: videoTime })
+            if (toOutput) {
+                let timeValues: any = {}
+                activeOutputIds.forEach((id) => {
+                    timeValues[id] = videoTime
+                })
+
+                send(OUTPUT, ["TIME"], timeValues)
+            }
         }
 
         if (movePause) pauseAtMove(false)
@@ -87,8 +82,18 @@
     let movePause: boolean = false
     function pauseAtMove(boolean: boolean = true) {
         movePause = videoData.paused = boolean
-        if (toOutput) send(OUTPUT, ["UPDATE_VIDEO"], { id: outputId, data: videoData })
+
+        if (!toOutput) return
+
+        let dataValues: any = {}
+        activeOutputIds.forEach((id, i: number) => {
+            dataValues[id] = { ...videoData, muted: i > 0 ? true : videoData.muted }
+        })
+
+        send(OUTPUT, ["DATA"], dataValues)
     }
+
+    let fullLength: boolean = false
 </script>
 
 <svelte:window
@@ -104,7 +109,7 @@
         </span>
     {:else}
         <span style="color: var(--secondary)">
-            {joinTime(secondsToTime(videoTime))}
+            {joinTime(secondsToTime(Math.floor(videoTime)))}
         </span>
     {/if}
     <div class="slider">
@@ -116,7 +121,6 @@
             step={1}
             max={videoData.duration}
             on:mousedown={() => {
-                // if (toOutput) sendToOutput()
                 if (!videoData.paused) pauseAtMove()
             }}
             on:mousemove={move}
@@ -124,7 +128,13 @@
             on:input={sliderInput}
         />
     </div>
-    <span>{joinTime(secondsToTime(videoData.duration || 0))}</span>
+    <span style={fullLength ? "" : "color: var(--secondary)"} on:click={() => (fullLength = !fullLength)}>
+        {#if fullLength}
+            {joinTime(secondsToTime(videoData.duration || 0))}
+        {:else}
+            {joinTime(secondsToTime((videoData.duration || 0) - Math.floor(videoTime)))}
+        {/if}
+    </span>
 </div>
 
 <style>

@@ -2,7 +2,7 @@ import { get } from "svelte/store"
 import { uid } from "uid"
 import type { Timer } from "../../../../types/Show"
 import { activeProject, activeTimers, events, projects, timers } from "../../../stores"
-import { clone } from "../../helpers/array"
+import { clone, removeDuplicates } from "../../helpers/array"
 import { _show } from "../../helpers/shows"
 import { showsCache } from "./../../../stores"
 
@@ -39,42 +39,49 @@ export function getTimer(ref: any) {
         timer = get(timers)[ref.id]
     }
 
-    return JSON.parse(JSON.stringify(timer || {}))
+    return clone(timer || {})
 }
 
 export function createGlobalTimerFromLocalTimer(showId: string | undefined) {
     if (!showId) return
 
-    showsCache.update((a) => {
-        if (!a[showId]?.slides) return a
+    let currentShow = _show(showId).get()
+    if (!currentShow?.slides) return
 
-        Object.keys(a[showId].slides).forEach(checkSlide)
-        function checkSlide(slideId) {
-            let items: any[] = a[showId!].slides[slideId].items
+    let timerCreated: boolean = false
 
-            // TODO: "backup" global timer to show item.timer
+    Object.keys(currentShow.slides).forEach(checkSlide)
+    function checkSlide(slideId) {
+        let items: any[] = currentShow.slides[slideId].items
 
-            let timerIndex = items.findIndex((a) => !a.timerId && a.timer)
-            while (timerIndex >= 0) {
-                let globalTimerId = uid()
-                a[showId!].slides[slideId].items[timerIndex].timerId = globalTimerId
+        // TODO: "backup" global timer to show item.timer
 
-                timers.update((t) => {
-                    let globalTimer = clone(a[showId!].slides[slideId].items[timerIndex].timer)
-                    globalTimer.name = a[showId!].name
-                    delete globalTimer.id
+        let timerIndex = items.findIndex((a) => !a.timerId && a.timer)
+        while (timerIndex >= 0) {
+            timerCreated = true
+            let globalTimerId = uid()
+            currentShow.slides[slideId].items[timerIndex].timerId = globalTimerId
 
-                    // pre 0.5.3
-                    if (globalTimer.type === "countdown") globalTimer.type = "counter"
+            timers.update((t) => {
+                let globalTimer = clone(currentShow.slides[slideId].items[timerIndex].timer)
+                globalTimer.name = currentShow.name
+                delete globalTimer.id
 
-                    t[globalTimerId] = globalTimer
-                    return t
-                })
+                // pre 0.5.3
+                if (globalTimer.type === "countdown") globalTimer.type = "counter"
 
-                timerIndex = items.findIndex((a) => !a.timerId && a.timer)
-            }
+                t[globalTimerId] = globalTimer
+                return t
+            })
+
+            timerIndex = items.findIndex((a) => !a.timerId && a.timer)
         }
+    }
 
+    if (!timerCreated) return
+
+    showsCache.update((a) => {
+        a[showId] = currentShow
         return a
     })
 }
@@ -109,24 +116,26 @@ export async function loadProjectTimers(projectShows = get(projects)[get(activeP
     )
 
     // remove duplicates
-    list = [...new Set(list)]
+    list = removeDuplicates(list)
     return list
 }
 
 export function getCurrentTimerValue(timer: Timer, ref: any, today: Date, updater = get(activeTimers)) {
     let currentTime: number = 0
+
     if (timer.type === "counter") {
         currentTime = updater.filter((a) => a.id === ref.id)[0]?.currentTime
         if (typeof currentTime !== "number") currentTime = timer.start!
     } else if (timer.type === "clock") {
         let todayTime = new Date([today.getMonth() + 1, today.getDate(), today.getFullYear(), timer.time].join(" "))
-        currentTime = todayTime.getTime() > today.getTime() ? (todayTime.getTime() - today.getTime()) / 1000 : 0
+        currentTime = (todayTime.getTime() - today.getTime()) / 1000
     } else if (timer.type === "event") {
         let eventTime = new Date(get(events)[timer.event!]?.from)?.getTime() || 0
-        currentTime = eventTime > today.getTime() ? (eventTime - today.getTime()) / 1000 : 0
+        currentTime = (eventTime - today.getTime()) / 1000
     }
 
-    // console.log(currentTime)
+    if (currentTime < 0 && !timer.overflow) currentTime = 0
+
     return currentTime
 }
 
@@ -137,7 +146,11 @@ export function playPauseGlobal(id: any, timer: any, forcePlay: boolean = false)
 
     activeTimers.update((a) => {
         if (index < 0) a.push({ ...timer, id, currentTime: timer?.start || 0, paused: false })
-        else a[index].paused = forcePlay ? false : !a[index].paused
+        else {
+            a[index].paused = forcePlay ? false : !a[index].paused
+            delete a[index].startTime
+        }
+
         return a
     })
 

@@ -1,185 +1,258 @@
 import { get } from "svelte/store"
-import { activeEdit, drawerTabsData, groups, outputs, overlays, selected, sorted, templates } from "../../stores"
+import { activeEdit, activeTagFilter, contextData, drawerTabsData, globalTags, groups, outputs, overlays, selected, sorted } from "../../stores"
 import { translate } from "../../utils/language"
 import { drawerTabs } from "../../values/tabs"
-import { chordAdders, keys } from "../edit/values/chords"
-import { keysToID } from "../helpers/array"
+import { getEditItems, getEditSlide } from "../edit/scripts/itemHelpers"
+import { chordTypes, keys } from "../edit/values/chords"
+import { clone, keysToID, sortByName, sortObject } from "../helpers/array"
+import { getDynamicIds } from "../helpers/showActions"
 import { _show } from "../helpers/shows"
 import type { ContextMenuItem } from "./contextMenus"
+import { actionData } from "../actions/actionData"
+import { getSlideText } from "../edit/scripts/textStyle"
+
+const loadActions = {
+    enabled_drawer_tabs: (items: ContextMenuItem[]) => {
+        const tabsToRemove = 2
+        let tabs = keysToID(clone(drawerTabs)).slice(tabsToRemove)
+        items = tabs.map((a: any) => {
+            let enabled = get(drawerTabsData)[a.id]?.enabled !== false
+            return { id: a.id, label: a.name, icon: a.icon, enabled }
+        })
+
+        return items
+    },
+    tags: () => {
+        let sortedTags = sortObject(sortByName(keysToID(get(globalTags))), "color").map((a) => ({ ...a, label: a.name, enabled: get(activeTagFilter).includes(a.id), translate: false }))
+        setContextData("tags", sortedTags.length)
+        return sortedTags
+    },
+    sort_shows: (items: ContextMenuItem[]) => sortItems(items, "shows"),
+    sort_projects: (items: ContextMenuItem[]) => sortItems(items, "projects"),
+    slide_groups: (items: ContextMenuItem[]) => {
+        let selectedIndex = get(selected).data[0]?.index
+        let currentSlide = _show().layouts("active").ref()[0]?.[selectedIndex]
+        if (!currentSlide) return []
+
+        let currentGroup = currentSlide.data?.globalGroup || ""
+        items = Object.entries(get(groups)).map(([id, a]: any) => {
+            return { id, color: a.color, label: a.default ? "groups." + a.name : a.name, translate: !!a.default, enabled: id === currentGroup }
+        })
+
+        return sortItemsByLabel(items)
+    },
+    actions: () => {
+        let slideRef: any = _show().layouts("active").ref()[0]?.[get(selected).data[0]?.index]
+        let currentActions: any = slideRef?.data?.actions
+
+        let slideActions = [
+            { id: "action", label: "midi.start_action", icon: "actions" },
+            { id: "receiveMidi", label: "actions.play_on_midi", icon: "play", enabled: currentActions?.receiveMidi || false },
+            "SEPERATOR",
+            { id: "nextTimer", label: "preview.nextTimer", icon: "clock", enabled: Number(slideRef?.data?.nextTimer || 0) || false },
+            { id: "loop", label: "preview.to_start", icon: "restart", enabled: slideRef?.data?.end || false },
+            { id: "nextAfterMedia", label: "actions.next_after_media", icon: "forward", enabled: currentActions?.nextAfterMedia || false },
+            "SEPERATOR",
+            { id: "animate", label: "popup.animate", icon: "stars", enabled: currentActions?.animate || false },
+        ]
+
+        return slideActions
+    },
+    item_actions: () => {
+        let slide = getEditSlide()
+        if (!slide) return []
+
+        let selectedItems: number[] = get(activeEdit).items || []
+        let currentItemActions: any = slide.items?.[selectedItems[0]]?.actions || {}
+
+        let itemActions: any = [
+            { id: "transition", label: "popup.transition", icon: "transition", enabled: !!currentItemActions.transition },
+            { id: "showTimer", label: "actions.show_timer", icon: "time_in", enabled: Number(currentItemActions.showTimer || 0) || false },
+            { id: "hideTimer", label: "actions.hide_timer", icon: "time_out", enabled: Number(currentItemActions.hideTimer || 0) || false },
+        ]
+
+        return itemActions
+    },
+    remove_layers: () => {
+        let layoutSlide: any = _show().layouts("active").ref()[0]?.[get(selected).data[0]?.index] || {}
+
+        // text content
+        let hasTextContent = getSlideText(_show().slides([layoutSlide.id]).get()[0])
+        setContextData("textContent", hasTextContent)
+
+        let data: any = layoutSlide.data
+        if (!data) return []
+
+        let showMedia: any = _show().get().media
+        let media: any[] = []
+
+        // get background
+        let bg = data.background
+        if (bg && showMedia[bg]?.name) {
+            media.push({
+                id: bg,
+                label: showMedia[bg].name.indexOf(".") > -1 ? showMedia[bg].name.slice(0, showMedia[bg].name.lastIndexOf(".")) : showMedia[bg].name,
+                translate: false,
+                icon: "image",
+            })
+        }
+
+        // get overlays
+        let ol = data.overlays || []
+        if (ol.length) {
+            if (media.length) media.push("SEPERATOR")
+            media.push(
+                ...sortByName(
+                    ol.map((id: string) => ({ id, label: get(overlays)[id].name, translate: false, icon: "overlays" })),
+                    "label"
+                )
+            )
+        }
+
+        // get audio
+        let audio = data.audio || []
+        if (audio.length) {
+            if (media.length) media.push("SEPERATOR")
+            let audioItems = sortByName(
+                audio.map((id: string) => ({
+                    id,
+                    label: showMedia[id].name.indexOf(".") > -1 ? showMedia[id].name.slice(0, showMedia[id].name.lastIndexOf(".")) : showMedia[id].name,
+                    translate: false,
+                    icon: "music",
+                })),
+                "label"
+            )
+            media.push(...audioItems)
+        }
+
+        // get mics
+        let mics = data.mics || []
+        if (mics.length) {
+            if (media.length) media.push("SEPERATOR")
+            let micItems = sortByName(
+                mics.map((mic: any) => ({
+                    id: mic.id,
+                    label: mic.name,
+                    translate: false,
+                    icon: "microphone",
+                })),
+                "label"
+            )
+            media.push(...micItems)
+        }
+
+        // get slide actions
+        let slideActions = data.actions?.slideActions || []
+        if (slideActions.length) {
+            if (media.length) media.push("SEPERATOR")
+            let actionItems = sortByName(
+                slideActions.map((action: any) => ({
+                    id: action.id,
+                    label: actionData[action.triggers?.[0]]?.name || "",
+                    icon: actionData[action.triggers?.[0]]?.icon || "actions",
+                    type: "action",
+                })),
+                "label"
+            )
+            media.push(...actionItems)
+        }
+
+        setContextData("layers", !!media?.length)
+
+        if (media.length) return media
+        return [{ label: "empty.general", disabled: true }]
+    },
+    keys: () => {
+        return keys.map((key) => ({ id: key, label: key, translate: false }))
+    },
+    chord_list: (items: ContextMenuItem[]) => {
+        keys.forEach((key) => {
+            chordTypes.forEach((adder) => {
+                items.push({ id: key + adder, label: key + adder, translate: false })
+            })
+        })
+
+        return items
+    },
+    bind_slide: (_items, isItem: boolean = false) => {
+        let outputList: any[] = sortByName(keysToID(get(outputs)).filter((a) => !a.isKeyOutput && !a.stageOutput))
+
+        outputList = outputList.map((a) => ({ id: a.id, label: a.name, translate: false }))
+        if (isItem) outputList.push("SEPERATOR", { id: "stage", label: "menu.stage" })
+
+        let currentBindings: string[] = []
+        if (isItem) {
+            // get current item bindings
+            let editItems: any[] = getEditItems(true)
+            currentBindings = editItems[0]?.bindings || []
+        } else {
+            let selectedIndex = get(selected).data[0]?.index
+            let currentSlide = _show().layouts("active").ref()[0]?.[selectedIndex] || {}
+            currentBindings = currentSlide.data?.bindings || []
+        }
+
+        outputList = outputList.map((a) => {
+            if (currentBindings.includes(a.id)) a.enabled = true
+            return a
+        })
+
+        setContextData("outputList", outputList?.length > 1)
+
+        return outputList
+    },
+    bind_item: () => loadActions.bind_slide([], true),
+    dynamic_values: () => {
+        let values: any = getDynamicIds().map((id) => ({ id, label: id, translate: false }))
+        let firstShowIndex = values.findIndex((a) => a.id.includes("show_"))
+        let firstVideoIndex = values.findIndex((a) => a.id.includes("video_"))
+        let firstMetaIndex = values.findIndex((a) => a.id.includes("meta_"))
+        values = [...values.slice(0, firstShowIndex), "SEPERATOR", ...values.slice(firstShowIndex, firstVideoIndex), "SEPERATOR", ...values.slice(firstVideoIndex, firstMetaIndex), "SEPERATOR", ...values.slice(firstMetaIndex)]
+
+        return values
+    },
+}
+
+function setContextData(key: string, data: any) {
+    contextData.update((a) => {
+        a[key] = data
+        return a
+    })
+}
+
+function sortItems(items: ContextMenuItem[], id: "projects" | "shows") {
+    let type = get(sorted)[id]?.type || "name"
+
+    items = [
+        { id: "name", label: "sort.name", icon: "text", enabled: type === "name" },
+        { id: "created", label: "info.created", icon: "calendar", enabled: type === "created" },
+    ]
+    if (id === "shows") {
+        items.push({ id: "modified", label: "info.modified", icon: "calendar", enabled: type === "modified" })
+        items.push({ id: "used", label: "info.used", icon: "calendar", enabled: type === "used" })
+    }
+
+    return items
+}
+
+function sortItemsByLabel(items: ContextMenuItem[]) {
+    return items.sort((a, b) => {
+        let aName = a.translate ? translate(a.label) : a.label
+        let bName = b.translate ? translate(b.label) : b.label
+
+        return aName.localeCompare(bName)
+    })
+}
 
 export function loadItems(id: string): [string, ContextMenuItem][] {
-    let items: [string, ContextMenuItem][] = []
-    switch (id) {
-        case "enabled_drawer_tabs":
-            Object.entries(drawerTabs).forEach(([aID, a]: any, i) => {
-                if (i >= 2) items.push([id, { id: aID, label: a.name, icon: a.icon, enabled: get(drawerTabsData)[aID]?.enabled !== false }])
-            })
-            break
-        case "sort_shows":
-        case "sort_projects":
-            let sortedId = id.split("_")[1]
-            let type = get(sorted)[sortedId]?.type || "name"
+    if (!loadActions[id]) return []
 
-            items = [
-                [id, { id: "name", label: "sort.name", icon: "text", enabled: type === "name" }],
-                [id, { id: "date", label: "sort.date", icon: "calendar", enabled: type === "date" }],
-            ]
-            break
-        case "slide_groups":
-            let selectedIndex = get(selected).data[0]?.index
-            let currentSlide = _show().layouts("active").ref()[0][selectedIndex]
-            if (!currentSlide) return []
-            let currentGroup = currentSlide.data?.globalGroup || ""
+    let items: ContextMenuItem[] = loadActions[id]([])
+    let menuItems: [string, ContextMenuItem][] = items.map((a: any) => [a === "SEPERATOR" ? a : id, a])
 
-            Object.entries(get(groups)).forEach(([aID, a]: any) => {
-                items.push([id, { id: aID, color: a.color, label: a.default ? "groups." + a.name : a.name, translate: a.default, enabled: aID === currentGroup }])
-            })
+    return menuItems
+}
 
-            items = items.sort((a, b) => {
-                let aName = a[1].translate ? translate(a[1].label) : a[1].label
-                let bName = b[1].translate ? translate(b[1].label) : b[1].label
-                return aName.localeCompare(bName)
-            })
-            break
-        case "actions":
-            let slideRef: any = _show().layouts("active").ref()[0][get(selected).data[0]?.index]
-            let currentActions: any = slideRef?.data?.actions
-
-            let actions: any = [
-                { id: "nextTimer", label: "preview.nextTimer", icon: "clock", enabled: Number(slideRef?.data?.nextTimer || 0) || false },
-                { id: "loop", label: "preview.to_start", icon: "restart", enabled: slideRef?.data?.end || false },
-                { id: "animate", label: "popup.animate", icon: "stars", enabled: currentActions?.animate || false },
-                { id: "startShow", label: "preview._start", icon: "showIcon", enabled: currentActions?.startShow || false },
-                { id: "nextAfterMedia", label: "actions.next_after_media", icon: "forward", enabled: currentActions?.nextAfterMedia || false },
-                { id: "startTimer", label: "actions.start_timer", icon: "timer", enabled: currentActions?.startTimer || false },
-                { id: "outputStyle", label: "actions.change_output_style", icon: "styles", enabled: currentActions?.outputStyle || false },
-                { id: "receiveMidi", label: "actions.play_on_midi", icon: "play" },
-                { id: "sendMidi", label: "actions.send_midi", icon: "music" },
-            ]
-            let clearActions: any = [
-                { id: "stopTimers", label: "actions.stop_timers", icon: "stop", enabled: currentActions?.stopTimers || false },
-                { id: "clearBackground", label: "clear.background", icon: "background", enabled: currentActions?.clearBackground || false },
-                { id: "clearOverlays", label: "clear.overlays", icon: "overlays", enabled: currentActions?.clearOverlays || false },
-                { id: "clearAudio", label: "clear.audio", icon: "audio", enabled: currentActions?.clearAudio || false },
-            ]
-            items = [...items, ...actions.map((a) => [id, a]), ["SEPERATOR"], ...clearActions.map((a) => [id, a])]
-            break
-        case "item_actions":
-            let editSlideRef: any = _show().layouts("active").ref()[0]?.[get(activeEdit).slide ?? ""] || {}
-            let slide = _show().get("slides")?.[editSlideRef.id]
-
-            if (get(activeEdit).id) {
-                if (get(activeEdit).type === "overlay") slide = get(overlays)[get(activeEdit).id!]
-                else if (get(activeEdit).type === "template") slide = get(templates)[get(activeEdit).id!]
-            }
-            if (!slide) return []
-
-            let selectedItems: number[] = get(activeEdit).items
-            let currentItemActions: any = slide.items[selectedItems[0]].actions || {}
-
-            let itemActions: any = [
-                { id: "transition", label: "popup.transition", icon: "transition", enabled: !!currentItemActions.transition },
-                { id: "showTimer", label: "actions.show_timer", icon: "time_in", enabled: Number(currentItemActions.showTimer || 0) || false },
-                { id: "hideTimer", label: "actions.hide_timer", icon: "time_out", enabled: Number(currentItemActions.hideTimer || 0) || false },
-            ]
-
-            items = itemActions.map((a) => [id, a])
-            break
-        case "remove_layers":
-            let data: any = _show().layouts("active").ref()[0][get(selected).data[0]?.index]?.data
-            if (!data) return []
-            let showMedia: any = _show().get().media
-            let media: any[] = []
-
-            // get background
-            let bg = data.background
-            if (bg)
-                media.push({
-                    id: bg,
-                    label: showMedia[bg].name.indexOf(".") > -1 ? showMedia[bg].name.slice(0, showMedia[bg].name.lastIndexOf(".")) : showMedia[bg].name,
-                    translate: false,
-                    icon: "image",
-                })
-
-            // get overlays
-            let ol = data.overlays || []
-            if (ol.length) {
-                if (media.length) media.push({ id: "SEPERATOR", label: "" })
-                media.push(...ol.map((id: string) => ({ id, label: get(overlays)[id].name, translate: false, icon: "overlays" })).sort((a, b) => a.label.localeCompare(b.label)))
-            }
-
-            // get audio
-            let audio = data.audio || []
-            if (audio.length) {
-                if (media.length) media.push({ id: "SEPERATOR", label: "" })
-                media.push(
-                    ...audio
-                        .map((id: string) => ({
-                            id,
-                            label: showMedia[id].name.indexOf(".") > -1 ? showMedia[id].name.slice(0, showMedia[id].name.lastIndexOf(".")) : showMedia[id].name,
-                            translate: false,
-                            icon: "music",
-                        }))
-                        .sort((a, b) => a.label.localeCompare(b.label))
-                )
-            }
-
-            // get mics
-            let mics = data.mics || []
-            if (mics.length) {
-                if (media.length) media.push({ id: "SEPERATOR", label: "" })
-                media.push(
-                    ...mics
-                        .map((mic: any) => ({
-                            id: mic.id,
-                            label: mic.name,
-                            translate: false,
-                            icon: "microphone",
-                        }))
-                        .sort((a, b) => a.label.localeCompare(b.label))
-                )
-            }
-
-            if (media.length) media.forEach((action: any) => items.push([action.id === "SEPERATOR" ? action.id : id, action]))
-            else items = [[id, { label: "empty.general", disabled: true }]]
-
-            // items = items.sort((a, b) => a[1].label.localeCompare(b[1].label))
-            break
-        case "keys":
-            items = keys.map((key) => [id, { id: key, label: key, translate: false }])
-            break
-        case "chord_list":
-            keys.forEach((key) => {
-                chordAdders.forEach((adder) => {
-                    items.push([id, { id: key + adder, label: key + adder, translate: false }])
-                })
-            })
-            break
-        case "output_list":
-            let outputList: any[] = keysToID(get(outputs))
-                .filter((a) => !a.isKeyOutput)
-                .sort((a, b) => a.name.localeCompare(b.name))
-
-            outputList = outputList.map((a) => ["bind_item", { id: a.id, label: a.name, translate: false }])
-            outputList = [["bind_item", { id: "stage", label: "menu.stage" }], ...outputList]
-
-            // get current item bindings
-            // TODO: global function to get item from all different slide types
-            let editSlideRef2: any = _show().layouts("active").ref()[0]?.[get(activeEdit).slide ?? ""] || {}
-            let slide2 = _show().get("slides")?.[editSlideRef2.id]
-            if (get(activeEdit).id) {
-                if (get(activeEdit).type === "overlay") slide2 = get(overlays)[get(activeEdit).id!]
-                else if (get(activeEdit).type === "template") slide2 = get(templates)[get(activeEdit).id!]
-            }
-            let selectedItem: number = get(activeEdit).items[0]
-            let currentItemBindings: any = slide2 ? slide2.items?.[selectedItem]?.bindings || [] : []
-            outputList = outputList.map((a) => {
-                if (currentItemBindings.includes(a[1].id)) a[1].enabled = true
-                return a
-            })
-
-            items.push(...outputList)
-            break
-    }
-    return items
+export function quickLoadItems(id: string) {
+    if (!loadActions[id]) return
+    loadActions[id]([])
 }

@@ -12,6 +12,7 @@
 
     let value = $popupData.value || 0
     let layoutRef: any[] = _show().layouts("active").ref()[0]
+    let allActiveSlides = layoutRef.filter((a) => !a.data.disabled)
     let indexes = $popupData.indexes || layoutRef.map((_, i) => i)
     let allSlides: boolean = !$popupData.indexes?.length
 
@@ -34,39 +35,42 @@
     }
 
     // total time
-    let totalTime: string = "0s"
+    let totalTime: number = 0
     function getTotalTime() {
-        layoutRef = _show()
-            .layouts("active")
-            .ref()[0]
-            .filter((a) => !a.data.disabled)
-        let total = layoutRef.reduce((value, ref) => (value += Number(ref.data.nextTimer || 0)), 0)
-
-        totalTime = total ? (total > 59 ? joinTime(secondsToTime(total)) : total + "s") : "0s"
+        totalTime = allActiveSlides.reduce((value, ref) => (value += Number(ref.data.nextTimer || 0)), 0)
     }
 
-    let allTime: number = 10
+    let allTime: number = allActiveSlides[0]?.data?.nextTimer || 10
+
+    $: newTime = allTime * allActiveSlides.length
+
+    const getTime = (time: number) => (time > 59 ? joinTime(secondsToTime(time)) : time + "s")
 </script>
 
 {#if allSlides}
     <CombinedInput>
-        <NumberInput value={allTime} on:change={(e) => (allTime = Number(e.detail))} max={3600} fixed={value.toString().includes(".") ? 1 : 0} decimals={1} />
+        <NumberInput value={allTime} on:change={(e) => (allTime = Number(e.detail))} max={3600} fixed={value?.toString()?.includes(".") ? 1 : 0} decimals={1} />
     </CombinedInput>
     <CombinedInput>
         <p style="width: 100%;justify-content: center;opacity: 0.8;">
-            <T id="transition.duration" />: {totalTime}
+            <T id="transition.duration" />: {getTime(totalTime)}
         </p>
     </CombinedInput>
 
     <CombinedInput style="margin-top: 10px;">
         <Button style="flex: 1;" on:click={() => updateValue(allTime)} dark center>
             <Icon id="clock" right />
-            <T id="actions.to_all" />
+            <p style="flex: initial;min-width: auto;width: auto;padding: 0;">
+                <T id="actions.to_all" />
+                <span style="opacity: 0.5;min-width: auto;display: flex;align-items: center;padding-left: 6px;">
+                    {#if newTime !== totalTime}({getTime(newTime)}){/if}
+                </span>
+            </p>
         </Button>
     </CombinedInput>
 
     <CombinedInput>
-        <Button style="flex: 1;" on:click={() => updateValue(undefined)} center dark>
+        <Button style="flex: 1;" disabled={!totalTime} on:click={() => updateValue(undefined)} center dark>
             <Icon id="reset" right />
             <T id="actions.reset" />
         </Button>

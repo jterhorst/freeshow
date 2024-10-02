@@ -1,23 +1,31 @@
 <script lang="ts">
     import VirtualList from "@sveltejs/svelte-virtual-list"
-    import { Grid } from "svelte-virtual"
+    import { onDestroy } from "svelte"
     import { slide } from "svelte/transition"
-    import { READ_FOLDER } from "../../../../types/Channels"
-    import { activeDrawerOnlineTab, activeEdit, activePopup, activeShow, dictionary, labelsDisabled, media, mediaFolders, mediaOptions, outLocked, outputs, popupData } from "../../../stores"
+    import { uid } from "uid"
+    import { MAIN, READ_FOLDER } from "../../../../types/Channels"
+    import { activeDrawerOnlineTab, activeEdit, activeFocus, activePopup, activeShow, dictionary, focusMode, labelsDisabled, media, mediaFolders, mediaOptions, outLocked, outputs, popupData, selectAllMedia, selected } from "../../../stores"
+    import { send } from "../../../utils/request"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
+    import { clone, sortByName } from "../../helpers/array"
     import { splitPath } from "../../helpers/get"
     import { getExtension, getFileName, getMediaType, isMediaExtension, removeExtension } from "../../helpers/media"
     import { getActiveOutputs, setOutput } from "../../helpers/output"
     import Button from "../../inputs/Button.svelte"
+    import { clearBackground } from "../../output/clear"
     import Center from "../../system/Center.svelte"
+    import BMDStreams from "../live/BMDStreams.svelte"
     import Cameras from "../live/Cameras.svelte"
+    import NDIStreams from "../live/NDIStreams.svelte"
     import Screens from "../live/Screens.svelte"
     import Windows from "../live/Windows.svelte"
     import PlayerVideos from "../player/PlayerVideos.svelte"
     import Folder from "./Folder.svelte"
     import Media from "./MediaCard.svelte"
+    import MediaGrid from "./MediaGrid.svelte"
     import { loadFromPixabay } from "./pixabay"
+    import { loadFromUnsplash } from "./unsplash"
 
     export let active: string | null
     export let searchValue: string = ""
@@ -26,7 +34,6 @@
     let files: any[] = []
 
     let notFolders = ["all", "favourites", "online", "screens", "cameras"]
-    $: console.log(active)
     $: rootPath = notFolders.includes(active || "") ? "" : active !== null ? $mediaFolders[active]?.path! || "" : ""
     $: path = notFolders.includes(active || "") ? "" : rootPath
 
@@ -34,9 +41,13 @@
 
     async function loadFilesAsync() {
         fullFilteredFiles = []
-        if (onlineTab !== "pixabay" || activeView === "folder") return
+        if ((onlineTab !== "pixabay" && onlineTab !== "unsplash") || activeView === "folder") return
 
-        fullFilteredFiles = await loadFromPixabay(searchValue || "landscape", activeView === "video")
+        if (onlineTab === "pixabay") {
+            fullFilteredFiles = await loadFromPixabay(searchValue || "landscape", activeView === "video")
+        } else if (onlineTab === "unsplash") {
+            fullFilteredFiles = await loadFromUnsplash(searchValue || "landscape")
+        }
         loadAllFiles(fullFilteredFiles)
     }
 
@@ -44,6 +55,7 @@
 
     let onlineTab = "youtube"
     $: if (active === "online" && onlineTab === "pixabay" && (searchValue !== null || activeView)) loadFilesAsync()
+    $: if (active === "online" && onlineTab === "unsplash" && (searchValue !== null || activeView)) loadFilesAsync()
     // only for info!
     $: if (onlineTab) activeDrawerOnlineTab.set(onlineTab)
 
@@ -58,29 +70,30 @@
             prevActive = active
         } else if (active === "favourites") {
             prevActive = active
-            files = Object.entries($media)
-                .map(([path, a]: any) => {
-                    let p = splitPath(path)
-                    let name = p.name
-                    return { path, favourite: a.favourite === true, name, extension: p.extension, audio: a.audio === true }
-                })
-                .filter((a) => a.favourite === true && a.audio !== true)
-                .sort((a: any, b: any) => a.name.localeCompare(b.name))
+            files = sortByName(
+                Object.entries($media)
+                    .map(([path, a]: any) => {
+                        let p = splitPath(path)
+                        let name = p.name
+                        return { path, favourite: a.favourite === true, name, extension: p.extension, audio: a.audio === true }
+                    })
+                    .filter((a) => a.favourite === true && a.audio !== true)
+            )
 
             filterFiles()
-            slowLoader = 50
-            increaseLoading()
         } else if (active === "all") {
             if (active !== prevActive) {
                 prevActive = active
                 files = []
-                Object.values($mediaFolders).forEach((data) => window.api.send(READ_FOLDER, { path: data.path }))
+                fullFilteredFiles = []
+                Object.values($mediaFolders).forEach((data) => send(MAIN, ["READ_FOLDER"], { path: data.path, disableThumbnails: $mediaOptions.mode === "list" }))
             }
-        } else if (path.length) {
+        } else if (path?.length) {
             if (path !== prevActive) {
                 prevActive = path
                 files = []
-                window.api.send(READ_FOLDER, { path, listFilesInFolders: true })
+                fullFilteredFiles = []
+                send(MAIN, ["READ_FOLDER"], { path, listFilesInFolders: true, disableThumbnails: $mediaOptions.mode === "list" })
             }
         } else {
             // screens && cameras
@@ -90,20 +103,23 @@
 
     let filesInFolders: string[] = []
 
+    let listenerId = uid()
+    onDestroy(() => window.api.removeListener(READ_FOLDER, listenerId))
+
     // receive files
-    window.api.receive(READ_FOLDER, (msg: any) => {
-        filesInFolders = (msg.filesInFolders || []).sort((a: any, b: any) => a.name.localeCompare(b.name))
+    window.api.receive(READ_FOLDER, receiveContent, listenerId)
+    function receiveContent(msg: any) {
+        filesInFolders = sortByName(msg.filesInFolders || [])
 
-        if (active === "all" || msg.path === path) {
-            files.push(...msg.files.filter((file: any) => isMediaExtension(file.extension) || file.folder))
-            files.sort((a: any, b: any) => a.name.localeCompare(b.name)).sort((a: any, b: any) => (a.folder === b.folder ? 0 : a.folder ? -1 : 1))
+        if (active !== "all" && msg.path !== path) return
 
-            filterFiles()
+        files.push(...msg.files.filter((file: any) => isMediaExtension(file.extension) || file.folder))
+        files = sortByName(files).sort((a: any, b: any) => (a.folder === b.folder ? 0 : a.folder ? -1 : 1))
 
-            slowLoader = 50
-            increaseLoading()
-        }
-    })
+        files = files.map((a) => ({ ...a, path: a.folder ? a.path : a.path }))
+
+        filterFiles()
+    }
 
     let scrollElem: any
 
@@ -149,8 +165,11 @@
     const filter = (s: string) => s.toLowerCase().replace(/[.,\/#!?$%\^&\*;:{}=\-_`~() ]/g, "")
     let fullFilteredFiles: any[] = []
     function filterSearch() {
-        fullFilteredFiles = JSON.parse(JSON.stringify(filteredFiles))
-        if (searchValue.length > 1) fullFilteredFiles = [...fullFilteredFiles, ...filesInFolders].filter((a) => filter(a.name).includes(searchValue))
+        fullFilteredFiles = clone(filteredFiles)
+        if (searchValue.length > 1) fullFilteredFiles = [...fullFilteredFiles, ...filesInFolders].filter((a) => filter(a.name).includes(filter(searchValue)))
+
+        // scroll to top
+        document.querySelector("svelte-virtual-list-viewport")?.scrollTo(0, 0)
     }
 
     let nextScrollTimeout: any = null
@@ -161,7 +180,7 @@
         mediaOptions.set({ ...$mediaOptions, columns: Math.max(2, Math.min(10, $mediaOptions.columns + (e.deltaY < 0 ? -100 : 100) / 100)) })
 
         // don't start timeout if scrolling with mouse
-        if (e.deltaY > 100 || e.deltaY < -100) return
+        if (e.deltaY >= 100 || e.deltaY <= -100) return
         nextScrollTimeout = setTimeout(() => {
             nextScrollTimeout = null
         }, 500)
@@ -169,9 +188,11 @@
 
     const shortcuts: any = {
         ArrowRight: () => {
+            if ($activeEdit.items.length) return
             if (activeFile === null || activeFile < content - 1) activeFile = activeFile === null ? 0 : activeFile + 1
         },
         ArrowLeft: () => {
+            if ($activeEdit.items.length) return
             if (activeFile === null || activeFile > 0) activeFile = activeFile === null ? content - 1 : activeFile - 1
         },
         Backspace: () => {
@@ -190,14 +211,19 @@
         activeEdit.set({ id: path, type: "media", items: [] })
         let name = removeExtension(getFileName(path))
         let type = getMediaType(getExtension(path))
-        activeShow.set({ id: path, name, type })
+
+        if ($focusMode) activeFocus.set({ id: path })
+        else activeShow.set({ id: path, name, type })
     }
 
     function keydown(e: any) {
         if (e.key === "Enter" && searchValue.length > 1 && e.target.closest(".search")) {
             if (fullFilteredFiles.length) {
                 let file = fullFilteredFiles[0]
-                activeShow.set({ id: file.path, name: file.name, type: getMediaType(file.extension) })
+
+                if ($focusMode) activeFocus.set({ id: file.path })
+                else activeShow.set({ id: file.path, name: file.name, type: getMediaType(file.extension) })
+
                 activeFile = filteredFiles.findIndex((a) => a.path === file.path)
                 if (activeFile < 0) activeFile = null
             }
@@ -219,24 +245,7 @@
 
     const slidesViews: any = { grid: "list", list: "grid" }
     const nextActiveView: any = { all: "folder", folder: "image", image: "video", video: "all" }
-
-    // TODO: temporary loading preformance test
-    let slowLoader: number = 50 // 10
-    let timeout: any = null
-    function increaseLoading() {
-        if (timeout) clearTimeout(timeout)
-        if (slowLoader < filteredFiles.length) {
-            setTimeout(() => {
-                // slowLoader += 1
-                slowLoader += 50
-                console.log(slowLoader + "/" + filteredFiles.length)
-                increaseLoading()
-            }, 200)
-        }
-    }
-
-    let gridHeight
-    let gridWidth
+    $: if (notFolders.includes(active || "") && activeView === "folder") activeView = "image"
 
     let zoomOpened: boolean = false
     function mousedown(e: any) {
@@ -245,7 +254,22 @@
         zoomOpened = false
     }
 
-    $: currentOutput = $outputs[getActiveOutputs()[0]]
+    $: currentOutput = $outputs[getActiveOutputs()[0]] || {}
+
+    // select all
+    $: if ($selectAllMedia) selectAll()
+    function selectAll() {
+        let data = fullFilteredFiles
+            .filter((a) => a.extension)
+            .map((file) => {
+                let type = getMediaType(file.extension)
+                let name = file.name.slice(0, file.name.lastIndexOf("."))
+                return { name, path: file.path, type }
+            })
+
+        selected.set({ id: "media", data })
+        selectAllMedia.set(false)
+    }
 </script>
 
 <!-- TODO: download pixabay images!!! -->
@@ -253,59 +277,65 @@
 
 <svelte:window on:keydown={keydown} on:mousedown={mousedown} />
 
-<!-- TODO: fix: big images & many files -->
-<!-- TODO: autoscroll -->
-<!-- TODO: ctrl+arrow keys change drawer item... -->
-<div class="scroll" style="flex: 1;overflow-y: auto;" bind:this={scrollElem} on:wheel={wheel}>
-    <!-- {active === 'screens' || active === 'cameras' || (active === 'online' && (onlineTab === 'youtube' || onlineTab === 'vimeo')) ? 'padding: 5px;' : ''} -->
-    <div class="grid" class:list={$mediaOptions.mode === "list"} style="height: 100%;" bind:clientHeight={gridHeight} bind:clientWidth={gridWidth}>
+<div class="scroll" style="flex: 1;overflow-y: auto;" bind:this={scrollElem} on:wheel|passive={wheel}>
+    <div class="grid" class:list={$mediaOptions.mode === "list"} style="height: 100%;">
         {#if active === "online" && (onlineTab === "youtube" || onlineTab === "vimeo")}
-            <PlayerVideos active={onlineTab} {searchValue} />
+            <div class="gridgap">
+                <PlayerVideos active={onlineTab} {searchValue} />
+            </div>
         {:else if active === "screens"}
-            {#if screenTab === "screens"}
-                <Screens bind:streams />
-            {:else}
-                <Windows bind:streams {searchValue} />
-            {/if}
+            <div class="gridgap">
+                {#if screenTab === "screens"}
+                    <Screens bind:streams />
+                {:else if screenTab === "ndi"}
+                    <NDIStreams />
+                {:else if screenTab === "blackmagic"}
+                    <BMDStreams />
+                {:else}
+                    <Windows bind:streams {searchValue} />
+                {/if}
+            </div>
         {:else if active === "cameras"}
-            <Cameras
-                on:click={({ detail }) => {
-                    let e = detail.event
-                    let cam = detail.cam
+            <div class="gridgap">
+                <Cameras
+                    on:click={({ detail }) => {
+                        let e = detail.event
+                        let cam = detail.cam
 
-                    if ($outLocked || e.ctrlKey || e.metaKey) return
-                    if (currentOutput.out?.background?.id === cam.id) setOutput("background", null)
-                    else setOutput("background", { name: cam.name, id: cam.id, cameraGroup: cam.cameraGroup, type: "camera" })
-                }}
-            />
+                        if ($outLocked || e.ctrlKey || e.metaKey) return
+                        if (currentOutput.out?.background?.id === cam.id) clearBackground()
+                        else setOutput("background", { name: cam.name, id: cam.id, cameraGroup: cam.cameraGroup, type: "camera" })
+                    }}
+                />
+            </div>
         {:else if fullFilteredFiles.length}
-            {#key rootPath}
-                {#key path}
-                    {#if $mediaOptions.mode === "grid"}
-                        <Grid
-                            itemCount={fullFilteredFiles.length}
-                            itemHeight={gridWidth / $mediaOptions.columns / 1.777 + 25}
-                            itemWidth={gridWidth / $mediaOptions.columns - ($mediaOptions.columns > 8 || $mediaOptions.columns < 4 ? 12 - $mediaOptions.columns : 3)}
-                            height={gridHeight - 1}
-                        >
-                            <div slot="item" let:index let:style {style}>
-                                {#if fullFilteredFiles[index].folder}
-                                    <Folder bind:rootPath={path} name={fullFilteredFiles[index].name} path={fullFilteredFiles[index].path} mode={$mediaOptions.mode} />
-                                {:else}
-                                    <Media name={fullFilteredFiles[index].name} path={fullFilteredFiles[index].path} type={getMediaType(fullFilteredFiles[index].extension)} bind:activeFile {allFiles} {active} />
-                                {/if}
-                            </div>
-                        </Grid>
-                    {:else}
-                        <VirtualList items={fullFilteredFiles} let:item={file}>
-                            {#if file.folder}
-                                <Folder bind:rootPath={path} name={file.name} path={file.path} mode={$mediaOptions.mode} />
-                            {:else}
-                                <Media name={file.name} path={file.path} type={getMediaType(file.extension)} bind:activeFile {allFiles} {active} />
-                            {/if}
-                        </VirtualList>
-                    {/if}
-                {/key}
+            {#key fullFilteredFiles}
+                {#if $mediaOptions.mode === "grid"}
+                    <MediaGrid items={fullFilteredFiles} columns={$mediaOptions.columns} let:item>
+                        {#if item.folder}
+                            <Folder bind:rootPath={path} name={item.name} path={item.path} mode={$mediaOptions.mode} folderPreview={fullFilteredFiles.length < 20} />
+                        {:else}
+                            <Media
+                                credits={item.credits}
+                                name={item.name}
+                                path={item.path}
+                                thumbnailPath={item.previewUrl || ($mediaOptions.columns < 3 ? "" : item.thumbnailPath)}
+                                type={getMediaType(item.extension)}
+                                bind:activeFile
+                                {allFiles}
+                                {active}
+                            />
+                        {/if}
+                    </MediaGrid>
+                {:else}
+                    <VirtualList items={fullFilteredFiles} let:item={file}>
+                        {#if file.folder}
+                            <Folder bind:rootPath={path} name={file.name} path={file.path} mode={$mediaOptions.mode} />
+                        {:else}
+                            <Media credits={file.credits} thumbnail={$mediaOptions.mode !== "list"} name={file.name} path={file.path} type={getMediaType(file.extension)} bind:activeFile {allFiles} {active} />
+                        {/if}
+                    </VirtualList>
+                {/if}
             {/key}
         {:else}
             <Center>
@@ -320,12 +350,21 @@
         {#if active === "screens"}
             <Button style="flex: 1;" active={screenTab === "screens"} on:click={() => (screenTab = "screens")} center>
                 <Icon size={1.2} id="screen" right />
-                <p>Screens</p>
+                <p><T id="live.screens" /></p>
             </Button>
             <Button style="flex: 1;" active={screenTab === "windows"} on:click={() => (screenTab = "windows")} center>
                 <Icon size={1.2} id="window" right />
-                <p>Windows</p>
+                <p><T id="live.windows" /></p>
             </Button>
+            <Button style="flex: 1;" active={screenTab === "ndi"} on:click={() => (screenTab = "ndi")} center>
+                <Icon size={1.2} id="ndi" right />
+                <p>NDI</p>
+            </Button>
+            <!-- BLACKMAGIC CURRENTLY NOT WORKING -->
+            <!-- <Button style="flex: 1;" active={screenTab === "blackmagic"} on:click={() => (screenTab = "blackmagic")} center>
+                <Icon size={1.2} id="blackmagic" right />
+                <p>Blackmagic</p>
+            </Button> -->
         {:else if active === "online"}
             <Button style="flex: 1;" active={onlineTab === "youtube"} on:click={() => (onlineTab = "youtube")} center>
                 <Icon style="fill: {onlineTab !== 'youtube' ? 'white' : '#ff0000'};" size={1.2} id="youtube" right />
@@ -338,6 +377,11 @@
             <Button style="flex: 1;" active={onlineTab === "pixabay"} on:click={() => (onlineTab = "pixabay")} center>
                 <Icon style="fill: {onlineTab !== 'pixabay' ? 'white' : '#00ab6b'};" size={1.2} id="pixabay" box={48} right />
                 <p>Pixabay</p>
+            </Button>
+            <Button style="flex: 1;" active={onlineTab === "unsplash"} on:click={() => (onlineTab = "unsplash")} center>
+                <!-- #111111 -->
+                <Icon style="fill: {onlineTab !== 'unsplash' ? 'white' : '#bbbbbb'};" size={1.2} id="unsplash" right />
+                <p>Unsplash</p>
             </Button>
         {:else}
             <Button disabled={rootPath === path} title={$dictionary.actions?.back} on:click={goBack}>
@@ -383,16 +427,18 @@
                     {#if !$labelsDisabled}<T id="settings.add" />{/if}
                 </Button>
             {:else}
-                {#if active === "online"}
+                {#if active === "online" && onlineTab === "unsplash"}
+                    <!-- only images!! -->
+                {:else if active === "online" && onlineTab === "pixabay"}
                     <Button title={$dictionary.media?.image} on:click={() => (activeView = "image")}>
-                        <Icon size={1.3} id="image" white={activeView !== "image"} />
+                        <Icon size={1.2} id="image" white={activeView !== "image"} />
                     </Button>
                     <Button title={$dictionary.media?.video} on:click={() => (activeView = "video")}>
-                        <Icon size={1.3} id="video" white={activeView !== "video"} />
+                        <Icon size={1.2} id="video" white={activeView !== "video"} />
                     </Button>
                 {:else}
                     <Button title={$dictionary.media?.[activeView]} on:click={() => (activeView = nextActiveView[activeView])}>
-                        <Icon size={1.3} id={activeView} white={activeView === "all"} />
+                        <Icon size={1.2} id={activeView === "all" ? "media" : activeView} white={activeView === "all"} />
                     </Button>
                 {/if}
 
@@ -407,7 +453,7 @@
                     <Icon size={1.3} id={$mediaOptions.mode} white />
                 </Button>
 
-                <Button on:click={() => (zoomOpened = !zoomOpened)} title={$dictionary.actions?.zoom}>
+                <Button on:click={() => (zoomOpened = !zoomOpened)} disabled={$mediaOptions.mode === "list"} title={$dictionary.actions?.zoom}>
                     <Icon size={1.3} id="zoomIn" white />
                 </Button>
                 {#if zoomOpened}
@@ -440,15 +486,14 @@
         display: flex;
         flex-wrap: wrap;
         flex: 1;
-        /* gap: 10px;
-    padding: 10px; */
-        /* padding: 5px; */
         place-content: flex-start;
     }
 
-    /* WIP padding in virtual grid - scrolling */
-    /* .grid :global(div:first-child) {
-        padding: 5px;
+    .grid :global(.selectElem) {
+        outline-offset: -3px;
+    }
+    /* .grid :global(#media.isSelected .main) {
+        z-index: -1;
     } */
 
     .grid :global(svelte-virtual-list-viewport) {
@@ -456,17 +501,18 @@
         padding: 5px;
     }
 
-    /* .grid :global(svelte-virtual-list-viewport) {
-        height: initial;
-        width: 100%;
-    }
-    .grid :global(svelte-virtual-list-contents) {
+    .gridgap {
         display: flex;
         flex-wrap: wrap;
-        flex: 1;
+        align-content: flex-start;
         padding: 5px;
-        place-content: flex-start;
-    } */
+
+        width: 100%;
+        height: 100%;
+
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
 
     .text {
         opacity: 0.8;

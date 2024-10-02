@@ -1,6 +1,13 @@
 <script lang="ts">
     import type { TabsObj } from "../../../types/Tabs"
-    import { activeStage } from "../../stores"
+    import { activeStage, stageShows } from "../../stores"
+    import { getItemKeys } from "../edit/scripts/itemClipboard"
+    import { history } from "../helpers/history"
+    import Icon from "../helpers/Icon.svelte"
+    import { getResolution } from "../helpers/output"
+    import { getStyles } from "../helpers/style"
+    import T from "../helpers/T.svelte"
+    import Button from "../inputs/Button.svelte"
     import Tabs from "../main/Tabs.svelte"
     import BoxStyle from "./tools/BoxStyle.svelte"
     import Items from "./tools/Items.svelte"
@@ -17,22 +24,85 @@
         text: { name: "items.text", icon: "text", disabled: true },
         item: { name: "tools.item", icon: "item", disabled: true },
         items: { name: "tools.items", icon: "items" },
-        slide: { name: "tools.slide", icon: "options" },
+        slide: { name: "tools.slide", icon: "options", overflow: true },
     }
 
     let active: string = $activeStage.items.length ? "item" : "items"
-    $: console.log($activeStage.items)
-    $: console.log(active)
 
     activeStage.subscribe((as) => {
         if (as.items.length && active !== "item" && active !== "text") {
             tabs.text.disabled = tabs.item.disabled = false
             active = "text"
-        } else if (!as.items.length && (active === "item" || active === "text")) {
+        } else if (!as.items.length) {
             tabs.text.disabled = tabs.item.disabled = true
-            active = "items"
+            if (active === "item" || active === "text") active = "items"
         }
     })
+
+    function resetStageStyle() {
+        let resolution = getResolution()
+        let defaultItemStyle = {
+            width: `${resolution.width / 2}px`,
+            height: `${resolution.height / 2}px`,
+            left: `${resolution.width / 4}px`,
+            top: `${resolution.height / 4}px`,
+        }
+
+        let stageId = $activeStage.id
+        if (!stageId) return
+
+        const itemKeys = getItemKeys()
+        const activeItems = $activeStage.items?.length ? $activeStage.items : Object.keys($stageShows[stageId].items)
+        let textStyles: { [key: string]: string } = {}
+        let itemStyles: { [key: string]: string } = {}
+        activeItems.forEach((key) => {
+            let item = $stageShows[stageId].items[key]
+            const styles = getStyles(item.style)
+
+            let textStyle: string = ""
+            let itemStyle: string = ""
+            let defaultStyle: string = ""
+
+            // split text/item styles
+            Object.entries(styles).forEach(([key, value]: any) => {
+                if (Object.keys(defaultItemStyle).includes(key) && active === "item") defaultStyle += `${key}: ${defaultItemStyle[key]};`
+                else if (!itemKeys.includes(key)) textStyle += `${key}: ${value};`
+                else itemStyle += `${key}: ${value};`
+            })
+
+            textStyles[key] = itemStyle
+            itemStyles[key] = textStyle + defaultStyle
+        })
+
+        if (active === "text") {
+            // this will not reset text css style
+            const resetData = { auto: true, chords: false, chordsData: {} }
+            Object.entries(resetData).forEach(([subkey, data]) => {
+                history({
+                    id: "UPDATE",
+                    newData: { data, key: "items", subkey, keys: $activeStage.items },
+                    oldData: { id: stageId },
+                    location: { page: "stage", id: "stage_item_content", override: stageId + "_reset_text" },
+                })
+            })
+
+            history({
+                id: "UPDATE",
+                newData: { data: textStyles, key: "items", subkey: "style", keys: activeItems },
+                oldData: { id: stageId },
+                location: { page: "stage", id: "stage_item_style", override: stageId + "_reset_item_text" },
+            })
+        } else if (active === "item") {
+            history({
+                id: "UPDATE",
+                newData: { data: itemStyles, key: "items", subkey: "style", keys: activeItems },
+                oldData: { id: stageId },
+                location: { page: "stage", id: "stage_item_style", override: stageId + "_reset_item" },
+            })
+        } else if (active === "slide") {
+            history({ id: "UPDATE", newData: { data: {}, key: "settings" }, oldData: { id: stageId }, location: { page: "stage", id: "stage", override: "stage_reset" } })
+        }
+    }
 </script>
 
 <div class="main border stageTools">
@@ -56,15 +126,14 @@
         </div>
     {/if}
 
-    <!-- TODO: reset stage -->
-    <!-- <span style="display: flex;">
-    {#if active !== "items"}
-      <Button style="flex: 1;" dark center>
-        <Icon id="reset" right />
-        <T id={"actions.reset"} />
-      </Button>
-    {/if}
-  </span> -->
+    <span style="display: flex;flex-wrap: wrap;white-space: nowrap;">
+        {#if active !== "items"}
+            <Button style="flex: 1;" on:click={resetStageStyle} dark center>
+                <Icon id="reset" right />
+                <T id={"actions.reset"} />
+            </Button>
+        {/if}
+    </span>
 </div>
 
 <style>

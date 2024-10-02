@@ -1,15 +1,14 @@
 <script lang="ts">
-    import { activeRecording, currentRecordingStream, recordingPath } from "../../../stores"
+    import { activeRecording, currentRecordingStream } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
     import Button from "../../inputs/Button.svelte"
-    import FolderPicker from "../../inputs/FolderPicker.svelte"
-    import { stopMediaRecorder, toggleMediaRecorder } from "./recorder"
+    import { mediaRecorderIsPaused, stopMediaRecorder, toggleMediaRecorder } from "./recorder"
 
     let videoElem
     $: if ($currentRecordingStream && videoElem) {
         videoElem.srcObject = $currentRecordingStream
-        paused = false
+        paused = mediaRecorderIsPaused() || false
     }
 
     let paused = false
@@ -29,18 +28,18 @@
     </div>
 
     <div class="bottom">
-        <FolderPicker style="justify-content: flex-start;overflow: hidden;" title={$recordingPath} id="RECORDING">
+        <!-- <FolderPicker style="justify-content: flex-start;overflow: hidden;" title={$dataPath} id="DATA">
             <Icon id="folder" right />
-            {#if $recordingPath}
-                {$recordingPath}
+            {#if $dataPath}
+                {$dataPath}
             {:else}
                 <T id="inputs.change_folder" />
             {/if}
-        </FolderPicker>
+        </FolderPicker> -->
 
         <Button on:click={stopMediaRecorder} center dark>
             <Icon id="export" size={1.2} right />
-            <T id="export.export" />
+            <T id="actions.export_recording" />
         </Button>
     </div>
 {:else}

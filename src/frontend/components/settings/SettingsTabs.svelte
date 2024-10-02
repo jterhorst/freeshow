@@ -5,10 +5,10 @@
     import T from "../helpers/T.svelte"
     import Button from "../inputs/Button.svelte"
 
-    const tabs: SettingsTabs[] = ["general", "display_settings", "styles", "groups", "actions", "connection", "cloud", "theme", "other"]
+    const tabs: SettingsTabs[] = ["general", "display_settings", "styles", "groups", "connection", "cloud", "theme", "other"]
 
     function keydown(e: any) {
-        if (e.ctrlKey || e.metaKey) return
+        if (e.target?.closest(".edit") || e.ctrlKey || e.metaKey) return
 
         let nextTab = -1
         let currentTabIndex = tabs.findIndex((tab) => tab === $settingsTab)
@@ -43,5 +43,9 @@
 
     .main :global(button:nth-child(even)) {
         background-color: rgb(0 0 20 / 0.08);
+    }
+
+    .main :global(button.active) {
+        background-color: var(--primary-darker);
     }
 </style>

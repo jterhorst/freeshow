@@ -1,4 +1,5 @@
 import type { ItemType } from "./../../../../types/Show"
+import { captionLanguages } from "./captionLanguages"
 
 export type Box = {
     [key in ItemType]?: {
@@ -24,6 +25,7 @@ export type EditInput = {
     values?: any
     popup?: string
     enableNoColor?: boolean
+    relative?: boolean // updated values should be relative to each selected item (only for number px values)
 }
 
 export const mediaFitOptions: any[] = [
@@ -33,25 +35,58 @@ export const mediaFitOptions: any[] = [
     // { id: "scale-down", name: "Scale down" },
 ]
 
+export let trackerEdits = [
+    {
+        name: "clock.type",
+        input: "dropdown",
+        id: "tracker.type",
+        value: "number",
+        values: {
+            options: [
+                { id: "number", name: "$:variables.number:$" },
+                { id: "bar", name: "$:edit.progress_bar:$" },
+                { id: "group", name: "$:tools.groups:$" },
+            ],
+        },
+    },
+    {
+        name: "edit.accent_color",
+        input: "color",
+        id: "tracker.accent",
+        value: "#F0008C",
+    },
+]
+
 export const boxes: Box = {
     text: {
         // name: "items.text",
         icon: "text",
         edit: {
-            font: [
+            default: [
                 { name: "family", id: "style", key: "font-family", input: "fontDropdown", value: "CMGSans" },
-                { name: "color", id: "style", key: "color", input: "color", value: "#FFFFFF" },
-                { name: "size", id: "style", key: "font-size", input: "number", value: 100, extension: "px", disabled: "auto" },
+                { name: "text_color", id: "style", key: "color", input: "color", value: "#FFFFFF" },
+                { name: "font_size", id: "style", key: "font-size", input: "number", value: 100, extension: "px" },
                 { name: "auto_size", id: "auto", input: "checkbox", value: false },
+                {
+                    name: "text_fit",
+                    id: "textFit",
+                    input: "dropdown",
+                    value: "shrinkToFit",
+                    values: {
+                        options: [
+                            { id: "shrinkToFit", name: "$:edit.shrink_to_fit:$" },
+                            { id: "growToFit", name: "$:edit.grow_to_fit:$" },
+                        ],
+                    },
+                },
                 { input: "font-style" },
             ],
-            style: [
-                { name: "line_height", id: "style", key: "line-height", input: "number", value: 1.1, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 }, extension: "em" },
-                { name: "line_spacing", id: "specialStyle.lineGap", input: "number", value: 0, values: { max: 500 } },
+            align: [{ input: "align-x" }, { input: "align-y" }],
+            text: [
                 { name: "letter_spacing", id: "style", key: "letter-spacing", input: "number", value: 0, values: { max: 100, min: -1000 }, extension: "px" },
                 { name: "word_spacing", id: "style", key: "word-spacing", input: "number", value: 0, values: { min: -100 }, extension: "px" },
                 {
-                    name: "transform",
+                    name: "text_transform",
                     input: "dropdown",
                     id: "style",
                     key: "text-transform",
@@ -65,9 +100,15 @@ export const boxes: Box = {
                         ],
                     },
                 },
-                { name: "background_color", id: "specialStyle.lineBg", input: "color", value: "", enableNoColor: true },
+                { name: "background_color", id: "style", key: "background-color", input: "color", value: "rgb(0 0 0 / 0)", enableNoColor: true },
+                { name: "no_wrap", id: "nowrap", input: "checkbox", value: false },
             ],
-            align: [{ input: "align-x" }, { input: "align-y" }],
+            lines: [
+                { name: "line_height", id: "style", key: "line-height", input: "number", value: 1.1, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 }, extension: "em" },
+                { name: "line_spacing", id: "specialStyle.lineGap", input: "number", value: 0, values: { max: 500 } },
+                { name: "background_color", id: "specialStyle.lineBg", input: "color", value: "", enableNoColor: true },
+                { name: "background_opacity", id: "specialStyle.opacity", input: "number", value: 1, values: { step: 0.1, decimals: 1, max: 1, inputMultiplier: 10 } },
+            ],
             outline: [
                 { name: "color", id: "style", key: "-webkit-text-stroke-color", input: "color", value: "#000000" },
                 { name: "width", id: "style", key: "-webkit-text-stroke-width", input: "number", value: 0, values: { max: 100 }, extension: "px" },
@@ -99,7 +140,7 @@ export const boxes: Box = {
                         ],
                     },
                 },
-                // { name: "scrolling_speed", id: "scrolling.speed", input: "number", value: 10, values: { max: 100 } },
+                { name: "scrolling_speed", id: "scrolling.speed", input: "number", value: 15, values: { min: 1, max: 100 } },
             ],
             CSS: [{ id: "text", input: "CSS" }],
         },
@@ -148,7 +189,7 @@ export const boxes: Box = {
                 { name: "size", id: "style", key: "font-size", input: "number", value: 100, extension: "px" }, // , disabled: "item.autoSize"
                 { name: "auto_size", id: "auto", input: "checkbox", value: false },
             ],
-            style: [
+            text: [
                 { input: "font-style" },
                 { name: "line_spacing", id: "style", key: "line-height", input: "number", value: 1.1, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 }, extension: "em" },
                 { name: "letter_spacing", id: "style", key: "letter-spacing", input: "number", value: 0, values: { max: 100, min: -1000 }, extension: "px" },
@@ -174,7 +215,12 @@ export const boxes: Box = {
             default: [
                 { id: "src", input: "media" },
                 { name: "media.fit", id: "fit", input: "dropdown", value: "contain", values: { options: mediaFitOptions } },
-                { name: "media.flip", id: "flipped", input: "checkbox", value: false },
+                { name: "actions.mute", id: "muted", input: "checkbox", value: false },
+                { name: "media.flip_horizontally", id: "flipped", input: "checkbox", value: false },
+                { name: "media.flip_vertically", id: "flippedY", input: "checkbox", value: false },
+                // WIP crop image
+                // object-position: 20px 20px;
+                // transform: scale(1.2) translate(0, 5%);
             ],
             filters: [
                 { name: "filter.hue-rotate", id: "filter", key: "hue-rotate", input: "number", value: 0, values: { max: 360 }, extension: "deg" },
@@ -200,8 +246,9 @@ export const boxes: Box = {
         edit: {
             default: [
                 { name: "choose_camera", id: "device", input: "popup", popup: "choose_camera", icon: "camera" },
-                // { name: "media.fit", id: "fit", input: "dropdown", value: "contain", values: { options: mediaFitOptions } },
-                // { name: "media.flip", id: "flipped", input: "checkbox", value: false },
+                { name: "media.fit", id: "fit", input: "dropdown", value: "contain", values: { options: mediaFitOptions } },
+                { name: "media.flip_horizontally", id: "flipped", input: "checkbox", value: false },
+                { name: "media.flip_vertically", id: "flippedY", input: "checkbox", value: false },
             ],
             // filters: [
             //     { name: "filter.hue-rotate", id: "filter", key: "hue-rotate", input: "number", value: 0, values: { max: 360 }, extension: "deg" },
@@ -236,11 +283,30 @@ export const boxes: Box = {
                 },
                 { name: "timer.mask", id: "timer.circleMask", input: "checkbox", value: false },
             ],
+            // font: [
+            //     { name: "family", id: "style", key: "font-family", input: "fontDropdown", value: "CMGSans" },
+            //     { name: "color", id: "style", key: "color", input: "color", value: "#FFFFFF" },
+            // ],
+            // style: [
+            //     { input: "font-style" }
+            //     { name: "letter_spacing", id: "style", key: "letter-spacing", input: "number", value: 0, values: { max: 100, min: -1000 }, extension: "px" }
+            // ],
+
             font: [
                 { name: "family", id: "style", key: "font-family", input: "fontDropdown", value: "CMGSans" },
                 { name: "color", id: "style", key: "color", input: "color", value: "#FFFFFF" },
+                { name: "size", id: "style", key: "font-size", input: "number", value: 100, extension: "px", disabled: "auto" },
+                { name: "auto_size", id: "auto", input: "checkbox", value: true },
+                { input: "font-style" },
             ],
-            style: [{ input: "font-style" }, { name: "letter_spacing", id: "style", key: "letter-spacing", input: "number", value: 0, values: { max: 100, min: -1000 }, extension: "px" }],
+            align: [{ input: "align-x" }], // , { input: "align-y" }
+            style: [
+                { name: "letter_spacing", id: "style", key: "letter-spacing", input: "number", value: 0, values: { max: 100, min: -1000 }, extension: "px" },
+                { name: "line_height", id: "style", key: "line-height", input: "number", value: 1.1, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 }, extension: "em" },
+                // { name: "background_color", id: "specialStyle.lineBg", input: "color", value: "", enableNoColor: true },
+                // { name: "background_opacity", id: "specialStyle.opacity", input: "number", value: 1, values: { step: 0.1, decimals: 1, max: 1, inputMultiplier: 10 } },
+            ],
+
             outline: [
                 { name: "color", id: "style", key: "-webkit-text-stroke-color", input: "color", value: "#000000" },
                 { name: "width", id: "style", key: "-webkit-text-stroke-width", input: "number", value: 0, values: { max: 100 }, extension: "px" },
@@ -251,13 +317,13 @@ export const boxes: Box = {
                 { name: "offsetY", id: "style", key: "text-shadow", valueIndex: 1, input: "number", value: 2, values: { min: -1000 }, extension: "px" },
                 { name: "blur", id: "style", key: "text-shadow", valueIndex: 2, input: "number", value: 10, extension: "px" },
             ],
+            CSS: [{ id: "text", input: "CSS" }],
         },
     },
     clock: {
         icon: "clock",
         edit: {
             default: [
-                // TODO: clock = { type: "digital", seconds: false }
                 {
                     name: "clock.type",
                     input: "dropdown",
@@ -287,6 +353,7 @@ export const boxes: Box = {
                 { name: "offsetY", id: "style", key: "text-shadow", valueIndex: 1, input: "number", value: 2, values: { min: -1000 }, extension: "px" },
                 { name: "blur", id: "style", key: "text-shadow", valueIndex: 2, input: "number", value: 10, extension: "px" },
             ],
+            CSS: [{ id: "text", input: "CSS" }],
         },
     },
     events: {
@@ -306,13 +373,13 @@ export const boxes: Box = {
                 { name: "size", id: "style", key: "font-size", input: "number", value: 80, extension: "px" }, // , disabled: "item.autoSize"
                 // { name: "auto_size", id: "auto", input: "checkbox", value: false },
             ],
-            style: [
+            text: [
                 { input: "font-style" },
                 { name: "line_spacing", id: "style", key: "line-height", input: "number", value: 0.9, values: { max: 10, step: 0.1, decimals: 1, inputMultiplier: 10 }, extension: "em" },
                 { name: "letter_spacing", id: "style", key: "letter-spacing", input: "number", value: 0, values: { max: 100, min: -1000 }, extension: "px" },
                 { name: "word_spacing", id: "style", key: "word-spacing", input: "number", value: 0, values: { min: -100 }, extension: "px" },
                 {
-                    name: "transform",
+                    name: "text_transform",
                     input: "dropdown",
                     id: "style",
                     key: "text-transform",
@@ -369,12 +436,16 @@ export const boxes: Box = {
                 { name: "offsetY", id: "style", key: "text-shadow", valueIndex: 1, input: "number", value: 2, values: { min: -1000 }, extension: "px" },
                 { name: "blur", id: "style", key: "text-shadow", valueIndex: 2, input: "number", value: 10, extension: "px" },
             ],
+            CSS: [{ id: "text", input: "CSS" }],
         },
     },
     web: {
         icon: "web",
         edit: {
-            default: [{ name: "inputs.url", id: "web.src", input: "text", value: "" }],
+            default: [
+                { name: "inputs.url", id: "web.src", input: "text", value: "" },
+                { name: "disable_navigation", id: "web.noNavigation", input: "checkbox", value: false },
+            ],
         },
     },
     // mirror other shows content on the same slide index
@@ -384,6 +455,7 @@ export const boxes: Box = {
             // TODO: select show popup
             default: [
                 { name: "enable_stage", id: "mirror.enableStage", input: "checkbox", value: false },
+                { name: "next_slide", id: "mirror.nextSlide", input: "checkbox", value: false },
                 { name: "popup.select_show", id: "mirror.show", input: "dropdown", value: "", values: { options: [] } },
                 { name: "use_slide_index", id: "mirror.useSlideIndex", input: "checkbox", value: true },
                 { name: "slide_index", disabled: "mirror.useSlideIndex", id: "mirror.index", input: "number", value: 0 },
@@ -391,11 +463,24 @@ export const boxes: Box = {
             // template, item index
         },
     },
+    slide_tracker: {
+        icon: "percentage",
+        edit: {
+            default: trackerEdits,
+            font: [
+                { name: "family", id: "style", key: "font-family", input: "fontDropdown", value: "CMGSans" },
+                { name: "text_color", id: "style", key: "color", input: "color", value: "#FFFFFF" },
+                { name: "font_size", id: "style", key: "font-size", input: "number", value: 100, extension: "px", disabled: "auto" },
+                { name: "auto_size", id: "auto", input: "checkbox", value: false },
+                { input: "font-style" },
+            ],
+        },
+    },
     visualizer: {
         icon: "visualizer",
         edit: {
             default: [
-                { name: "color", id: "visualizer.color", input: "color", value: "#FFFFFF" },
+                { name: "color", id: "visualizer.color", input: "color", value: "rgb(0 0 0 / 0)", enableNoColor: true },
                 { name: "padding", id: "visualizer.padding", input: "number", value: 0 },
             ],
             // filters: [
@@ -411,8 +496,24 @@ export const boxes: Box = {
             // ],
         },
     },
+    captions: {
+        icon: "captions",
+        edit: {
+            default: [
+                { name: "captions.language", id: "captions.language", input: "dropdown", value: "en-US", values: { options: captionLanguages } },
+                // this is very limited
+                // { name: "captions.translate", id: "captions.translate", input: "dropdown", value: "en-US", values: { options: captionTranslateLanguages } },
+                { name: "captions.showtime", id: "captions.showtime", input: "number", value: 5, values: { min: 1, max: 60 } },
+                // label?
+                { name: "captions.powered_by", values: { subtext: "CAPTION.Ninja" }, input: "tip" },
+            ],
+            // WIP custom inputs for the css
+            // https://github.com/steveseguin/captionninja?tab=readme-ov-file#changing-the-font-size-and-more
+            CSS: [{ id: "captions.style", input: "CSS" }],
+        },
+    },
     icon: {
-        icon: "icon",
+        icon: "star",
         edit: {
             default: [{ name: "color", id: "style", key: "color", input: "color", value: "#FFFFFF" }],
         },

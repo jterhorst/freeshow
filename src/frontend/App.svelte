@@ -1,160 +1,27 @@
 <script lang="ts">
-    import { OUTPUT } from "../types/Channels"
-    import type { Resolution } from "../types/Settings"
-    import type { DrawerTabIds, TopViews } from "../types/Tabs"
+    import MainLayout from "./MainLayout.svelte"
+    import MainOutput from "./MainOutput.svelte"
     import ContextMenu from "./components/context/ContextMenu.svelte"
-    import { menuClick } from "./components/context/menuClick"
-    import DrawSettings from "./components/draw/DrawSettings.svelte"
-    import DrawTools from "./components/draw/DrawTools.svelte"
-    import Slide from "./components/draw/Slide.svelte"
-    import Drawer from "./components/drawer/Drawer.svelte"
-    import Editor from "./components/edit/Editor.svelte"
-    import EditTools from "./components/edit/EditTools.svelte"
-    import EffectTools from "./components/edit/EffectTools.svelte"
-    import MediaTools from "./components/edit/MediaTools.svelte"
-    import Navigation from "./components/edit/Navigation.svelte"
     import Pdf from "./components/export/Pdf.svelte"
-    import { copy, cut, deleteAction, duplicate, paste, selectAll } from "./components/helpers/clipboard"
-    import { redo, undo } from "./components/helpers/history"
-    import { displayOutputs, getActiveOutputs, getResolution } from "./components/helpers/output"
+    import Guide from "./components/guide/Guide.svelte"
     import { startEventTimer, startTimer } from "./components/helpers/timerTick"
+    import Loader from "./components/main/Loader.svelte"
     import MenuBar from "./components/main/MenuBar.svelte"
     import Popup from "./components/main/Popup.svelte"
     import Recorder from "./components/main/Recorder.svelte"
     import Toast from "./components/main/Toast.svelte"
-    import Top from "./components/main/Top.svelte"
-    import Output from "./components/output/Output.svelte"
-    import Preview from "./components/output/Preview.svelte"
-    import Settings from "./components/settings/Settings.svelte"
-    import SettingsTabs from "./components/settings/SettingsTabs.svelte"
-    import Projects from "./components/show/Projects.svelte"
-    import Show from "./components/show/Show.svelte"
-    import ShowTools from "./components/show/ShowTools.svelte"
-    import { getStyleResolution } from "./components/slide/getStyleResolution"
-    import Shows from "./components/stage/Shows.svelte"
-    import StageShow from "./components/stage/StageShow.svelte"
-    import StageTools from "./components/stage/StageTools.svelte"
-    import Resizeable from "./components/system/Resizeable.svelte"
-    import {
-        activeDrawerTab,
-        activeEdit,
-        activePage,
-        activePopup,
-        activeShow,
-        activeStage,
-        activeTimers,
-        autosave,
-        currentWindow,
-        disabledServers,
-        drawer,
-        events,
-        focusedArea,
-        loaded,
-        os,
-        outputDisplay,
-        outputs,
-        selected,
-        serverData,
-        special,
-        styles,
-        volume,
-    } from "./stores"
-    import { newToast } from "./utils/messages"
-    import { send } from "./utils/request"
-    import { save } from "./utils/save"
+    import QuickSearch from "./components/quicksearch/QuickSearch.svelte"
+    import Center from "./components/system/Center.svelte"
+    import { activeTimers, autosave, closeAd, currentWindow, disabledServers, events, loaded, os, outputDisplay } from "./stores"
+    import { focusArea, logerror, startAutosave, toggleRemoteStream } from "./utils/common"
+    import { keydown } from "./utils/shortcuts"
     import { startup } from "./utils/startup"
-    import { convertAutosave } from "./values/autosave"
 
     startup()
-    $: page = $activePage
 
-    let width: number = 0
-    let height: number = 0
-    let resolution: Resolution = getResolution()
-    $: resolution = getResolution(null, { $outputs, $styles }, true)
+    $: isWindows = !$currentWindow && $os.platform === "win32"
 
-    const menus: TopViews[] = ["show", "edit", "stage", "draw", "settings"]
-    const drawerMenus: DrawerTabIds[] = ["shows", "media", "overlays", "audio", "scripture", "calendar", "templates"]
-    const ctrlKeys: any = {
-        a: () => selectAll(),
-        c: () => copy(),
-        v: () => paste(),
-        // give time for drawer to not toggle
-        d: () => setTimeout(() => duplicate($selected)),
-        x: () => cut(),
-        e: () => activePopup.set("export"),
-        i: () => activePopup.set("import"),
-        n: () => activePopup.set("show"),
-        h: () => activePopup.set("history"),
-        m: () => volume.set($volume ? 0 : 1),
-        o: () => displayOutputs(),
-        s: () => save(),
-        y: () => redo(),
-        z: () => undo(),
-        Z: () => redo(),
-        "?": () => activePopup.set("shortcuts"),
-    }
-    const keys: any = {
-        Escape: () => {
-            // blur focused elements
-            if (document.activeElement !== document.body) {
-                ;(document.activeElement as HTMLElement).blur()
-
-                if (!$activePopup && $selected.id) setTimeout(() => selected.set({ id: null, data: [] }))
-                return
-            }
-
-            if ($activePopup === "initialize") return
-
-            // give time so output don't clear also
-            setTimeout(() => {
-                if ($activePopup) activePopup.set(null)
-                else if ($selected.id) selected.set({ id: null, data: [] })
-            })
-        },
-        Delete: () => deleteAction($selected, "remove"),
-        Backspace: () => keys.Delete(),
-        // give time so it don't clear slide
-        F2: () => setTimeout(menuClick("rename", true, null, null, null, $selected)),
-    }
-
-    function keydown(e: any) {
-        if ($currentWindow === "output") return
-
-        if (e.ctrlKey || e.metaKey) {
-            if (document.activeElement === document.body && Object.keys(drawerMenus).includes((e.key - 1).toString())) {
-                activeDrawerTab.set(drawerMenus[e.key - 1])
-                // open drawer
-                if ($drawer.height < 300) drawer.set({ height: $drawer.stored || 300, stored: null })
-                return
-            }
-
-            // use default input shortcuts on supported devices (this includes working undo/redo)
-            const exeption = ["e", "i", "n", "o", "s", "a"]
-            if ((e.key === "i" && document.activeElement?.closest(".editItem")) || (document.activeElement?.classList?.contains("edit") && !exeption.includes(e.key) && $os.platform !== "darwin")) {
-                return
-            }
-
-            if (ctrlKeys[e.key]) {
-                ctrlKeys[e.key](e)
-            }
-            return
-        }
-
-        if (e.altKey) return
-        if (document.activeElement?.classList.contains("edit") && e.key !== "Escape") return
-        if (document.activeElement === document.body && Object.keys(menus).includes((e.key - 1).toString())) activePage.set(menus[e.key - 1])
-
-        if (keys[e.key]) {
-            e.preventDefault()
-            keys[e.key](e)
-        }
-    }
-
-    function focusArea(e: any) {
-        if (e.target.closest(".menus") || e.target.closest(".contextMenu")) return
-        focusedArea.set(e.target.closest(".selectElem")?.id || e.target.querySelector(".selectElem")?.id || "")
-    }
+    ///// UPDATERS /////
 
     // countdown timer tick
     $: if ($activeTimers.length) startTimer()
@@ -162,155 +29,43 @@
     // check for show event
     $: if (Object.keys($events).length) startEventTimer()
 
-    function hideDisplay(ctrlKey: boolean = true) {
-        if (!ctrlKey) return
-        outputDisplay.set(false)
-        window.api.send(OUTPUT, { channel: "DISPLAY", data: { enabled: false } })
-    }
-
     // autosave
-    let autosaveTimeout: any = null
     $: if ($autosave) startAutosave()
-    function startAutosave() {
-        if (autosaveTimeout) clearTimeout(autosaveTimeout)
-        if (!convertAutosave[$autosave]) {
-            autosaveTimeout = null
-            return
-        }
-
-        autosaveTimeout = setTimeout(() => {
-            newToast("$toast.saving")
-            save()
-            startAutosave()
-        }, convertAutosave[$autosave])
-    }
-
-    // close youtube ad
-    let closeAd: boolean = false
-    window.api.receive(OUTPUT, (a: any) => {
-        if (a.channel === "CLOSE_AD") {
-            closeAd = true
-            setTimeout(() => (closeAd = false), 10)
-        }
-    })
-
-    $: isWindows = !$currentWindow && $os.platform === "win32"
-
-    let enableOutputMove: boolean = false
-    function mousemoveOutput(e: any) {
-        if (e.ctrlKey || e.metaKey || e.target.closest(".dragger")) enableOutputMove = true
-        else enableOutputMove = false
-    }
-    $: if ($currentWindow === "output") window.api.send(OUTPUT, { channel: "MOVE", data: { enabled: enableOutputMove } })
 
     // stream to OutputShow
-    $: if (!$currentWindow && ($disabledServers.output_stream !== "" || !$outputDisplay)) toggleRemoteStream()
-    function toggleRemoteStream() {
-        let value = { key: "server", value: false }
-        let captureOutputId = $serverData?.output_stream?.outputId
-        if (!captureOutputId || !$outputs[captureOutputId]) captureOutputId = getActiveOutputs($outputs, true, true)[0]
-        if ($disabledServers.output_stream === false) value.value = true
+    $: if (($loaded && $disabledServers.output_stream !== "") || !$outputDisplay) setTimeout(toggleRemoteStream, 1000)
 
-        setTimeout(() => {
-            send(OUTPUT, ["SET_VALUE"], { id: captureOutputId, key: "capture", value, rate: $special.previewRate || "auto" })
-        }, 1800)
-    }
+    // close youtube ad
+    $: if ($closeAd) setTimeout(() => closeAd.set(false), 10)
 </script>
 
-<svelte:window on:keydown={keydown} on:mousedown={focusArea} />
+<svelte:window on:keydown={keydown} on:mousedown={focusArea} on:error={logerror} on:unhandledrejection={logerror} />
 
 {#if $currentWindow === "pdf"}
     <Pdf />
 {:else}
+    <!-- "isWindows" is only set in main window -->
     {#if isWindows}
         <MenuBar />
     {/if}
-    <main style={isWindows ? "height: calc(100% - 30px);" : ""} class:closeAd class:background={$currentWindow === "output"}>
+
+    <main style={isWindows ? "height: calc(100% - 25px);" : ""} class:closeAd={$closeAd} class:background={$currentWindow === "output"}>
+        <ContextMenu />
+
         {#if $currentWindow === "output"}
-            <!-- TODO: mac center  -->
-            <div
-                class="fill"
-                style="flex-direction: {getStyleResolution(resolution, width, height, 'fit').includes('width') ? 'row' : 'column'}"
-                on:mousemove={mousemoveOutput}
-                bind:offsetWidth={width}
-                bind:offsetHeight={height}
-                on:dblclick={() => hideDisplay()}
-            >
-                {#if enableOutputMove}
-                    <div class="dragger">
-                        <p>Drag window</p>
-                    </div>
-                {/if}
-                <!-- Mac: width: 100%; -->
-                <Output style={getStyleResolution(resolution, width, height, "fit")} center />
-            </div>
-        {:else}
-            <ContextMenu />
+            <MainOutput />
+        {:else if $loaded}
             <Popup />
+            <QuickSearch />
             <Toast />
             <Recorder />
+            <Guide />
 
-            <div class="column">
-                <Top {isWindows} />
-                <div class="row">
-                    <Resizeable id="mainLeft">
-                        <div class="left">
-                            {#if page === "show"}
-                                <Projects />
-                            {:else if page === "edit"}
-                                <Navigation />
-                            {:else if page === "stage"}
-                                <Shows />
-                            {:else if page === "draw"}
-                                <DrawTools />
-                            {:else if page === "settings"}
-                                <SettingsTabs />
-                            {/if}
-                        </div>
-                    </Resizeable>
-
-                    <div class="center">
-                        {#if page === "show"}
-                            <Show />
-                        {:else if page === "edit"}
-                            <Editor />
-                        {:else if page === "draw"}
-                            <Slide />
-                        {:else if page === "settings"}
-                            <Settings />
-                        {:else if page === "stage"}
-                            <StageShow />
-                        {/if}
-                    </div>
-
-                    <Resizeable id="mainRight" let:width side="right">
-                        <div class="right" class:row={width > 300 * 1.5}>
-                            <Preview />
-                            {#if page === "show"}
-                                {#if $activeShow && ($activeShow.type === "show" || $activeShow.type === undefined)}
-                                    <ShowTools />
-                                {/if}
-                            {:else if page === "edit"}
-                                {#if $activeEdit.type === "media"}
-                                    <MediaTools />
-                                {:else if $activeEdit.type === "effect"}
-                                    <EffectTools />
-                                {:else}
-                                    <EditTools />
-                                {/if}
-                            {:else if page === "draw"}
-                                <DrawSettings />
-                            {:else if page === "stage" && $activeStage.id}
-                                <StageTools />
-                            {/if}
-                        </div>
-                    </Resizeable>
-                </div>
-
-                {#if $loaded && (page === "show" || page === "edit")}
-                    <Drawer />
-                {/if}
-            </div>
+            <MainLayout />
+        {:else}
+            <Center>
+                <Loader size={2} />
+            </Center>
         {/if}
     </main>
 {/if}
@@ -323,80 +78,7 @@
         background-color: var(--primary);
     }
 
-    .dragger {
-        -webkit-app-region: drag;
-        position: absolute;
-        top: 0;
-        left: 0;
-        height: 5vh;
-        width: 100%;
-        z-index: 10;
-
-        display: flex;
-        justify-content: center;
-        align-items: center;
-
-        background-color: rgb(255 255 255 / 0.2);
-    }
-
     .closeAd {
         height: 1px;
-    }
-
-    .column {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        justify-content: space-between;
-    }
-    .row {
-        display: flex;
-        flex: 1;
-        justify-content: space-between;
-        overflow: hidden;
-    }
-    .center {
-        flex: 1;
-        background-color: var(--primary-darker);
-        overflow: auto;
-    }
-    .left,
-    .right {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        justify-content: space-between;
-        overflow: hidden;
-    }
-    .right.row {
-        flex-direction: row-reverse;
-    }
-
-    .right :global(.border) {
-        border-top: 2px solid var(--primary-lighter);
-    }
-    .right.row :global(.border) {
-        border: none;
-        border-right: 2px solid var(--primary-lighter);
-        min-width: 50%;
-    }
-
-    /* @media (min-width: 640px) {
-		main {
-			max-width: none;
-		}
-	} */
-
-    .fill {
-        /* TODO: setting for hiding cursor... */
-        /* cursor: none; */
-        height: 100%;
-        width: 100%;
-        overflow: hidden;
-
-        display: flex;
-        /* background-color: black; */
-        /* enable this to see the actual output window cropped size */
-        /* background: var(--primary-darkest); */
     }
 </style>

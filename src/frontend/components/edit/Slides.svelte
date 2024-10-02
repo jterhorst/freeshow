@@ -1,39 +1,16 @@
 <script lang="ts">
     import { activeEdit, activeShow, cachedShowsData, showsCache } from "../../stores"
-    import { findMatchingOut } from "../helpers/output"
     import T from "../helpers/T.svelte"
+    import { findMatchingOut } from "../helpers/output"
+    import { getShowCacheId } from "../helpers/show"
     import Slide from "../slide/Slide.svelte"
     import Autoscroll from "../system/Autoscroll.svelte"
     import Center from "../system/Center.svelte"
     import DropArea from "../system/DropArea.svelte"
 
-    // $: editIndex = $output.slide?.index || 0
-    $: showId = $activeShow?.id || ""
+    $: showId = $activeShow?.id || $activeEdit.showId || ""
     $: currentShow = $showsCache[showId]
-
-    // TODO: change on show change...
-    // if ($activeEdit.slide === null || $activeEdit.slide === undefined || $activeEdit.slide >= GetLayout().length) {
-    //   let slide = null
-    //   if ($activeShow && GetLayout().length) {
-    //     if (typeof $activeShow.index === "number") {
-    //       slide = $activeShow.index
-    //       if (slide >= GetLayout().length) slide = 0
-    //     } else slide = 0
-    //   }
-    //   activeEdit.set({ slide, items: [] })
-    // }
-
-    // activeShow.subscribe(() => {
-    //   activeEdit.set({ slide: $activeShow?.index || 0, item: null })
-    // })
-    $: console.log($activeEdit)
-
-    // let layoutSlides: SlideData[] = []
-    // $: layoutSlides = GetLayout(showId)
-    // $: activeLayout = $showsCache[showId]?.settings.activeLayout
-    // TODO: not getting parent color at first
-    // $: layoutSlides = [$showsCache[showId]?.layouts[activeLayout].slides, GetLayout(showId)][1]
-    $: layoutSlides = $cachedShowsData[showId]?.layout || []
+    $: layoutSlides = $cachedShowsData[getShowCacheId(showId, currentShow)]?.layout || []
 
     function keydown(e: any) {
         if (e.altKey) {
@@ -42,6 +19,7 @@
         }
 
         if (e.target instanceof HTMLTextAreaElement || e.target.closest(".edit")) return
+        if ($activeEdit.items.length) return
 
         if (e.key === "ArrowDown") {
             // Arrow Down
@@ -49,9 +27,9 @@
             ;(document.activeElement as any)?.blur()
 
             if ($activeEdit.slide === null || $activeEdit.slide === undefined) {
-                activeEdit.set({ slide: 0, items: [] })
+                activeEdit.set({ slide: 0, items: [], showId })
             } else if ($activeEdit.slide < layoutSlides.length - 1) {
-                activeEdit.set({ slide: $activeEdit.slide + 1, items: [] })
+                activeEdit.set({ slide: $activeEdit.slide + 1, items: [], showId })
             }
         } else if (e.key === "ArrowUp") {
             // Arrow Up
@@ -59,9 +37,9 @@
             ;(document.activeElement as any)?.blur()
 
             if ($activeEdit.slide === null || $activeEdit.slide === undefined) {
-                activeEdit.set({ slide: layoutSlides.length - 1, items: [] })
+                activeEdit.set({ slide: layoutSlides.length - 1, items: [], showId })
             } else if ($activeEdit.slide > 0) {
-                activeEdit.set({ slide: $activeEdit.slide - 1, items: [] })
+                activeEdit.set({ slide: $activeEdit.slide - 1, items: [], showId })
             }
         }
     }
@@ -69,19 +47,15 @@
     let scrollElem: any
     let offset: number = -1
     $: {
-        if ($activeEdit.slide !== null && $activeEdit.slide !== undefined) {
+        if (loaded && $activeEdit.slide !== null && $activeEdit.slide !== undefined) {
             let index = $activeEdit.slide - 1
             setTimeout(() => {
-                if (index >= 0 && scrollElem) offset = scrollElem.querySelector(".grid").children[index]?.offsetTop || 5 - 5
+                if (index >= 0 && scrollElem) offset = scrollElem.querySelector(".grid")?.children?.[index]?.offsetTop || 5 - 5
             }, 10)
         }
     }
 
     let columns: number = 1
-    // function mousemove() {
-    //   if (scrollElem?.closest(".panel").offsetWidth > 300) columns = 2
-    //   else columns = 1
-    // }
 
     let nextScrollTimeout: any = null
     function wheel(e: any) {
@@ -90,11 +64,9 @@
 
         e.preventDefault()
         columns = Math.max(1, Math.min(4, columns + (e.deltaY < 0 ? -1 : 1)))
-        // if (e.ctrlKey || e.metaKey) columns = Math.max(1, Math.min(10, columns + e.deltaY / 100))
-        // if (e.ctrlKey || e.metaKey) slidesOptions.set({ ...$slidesOptions, columns: Math.max(1, Math.min(10, $slidesOptions.columns + e.deltaY / 100)) })
 
         // don't start timeout if scrolling with mouse
-        if (e.deltaY > 100 || e.deltaY < -100) return
+        if (e.deltaY >= 100 || e.deltaY <= -100) return
         nextScrollTimeout = setTimeout(() => {
             nextScrollTimeout = null
         }, 500)
@@ -112,7 +84,7 @@
     let loaded: boolean = false
 
     // reset loading when changing view modes
-    $: if ($activeShow?.id) loaded = false
+    $: if (showId) loaded = false
 
     $: if (!loaded && !lazyLoading && layoutSlides?.length) {
         lazyLoading = true
@@ -145,8 +117,9 @@
             {#if layoutSlides.length}
                 <div class="grid" on:wheel={wheel}>
                     {#each layoutSlides as slide, i}
-                        {#if (loaded || i < lazyLoader) && currentShow.slides[slide.id]}
+                        {#if (loaded || i < lazyLoader) && currentShow?.slides?.[slide.id]}
                             <Slide
+                                {showId}
                                 slide={currentShow.slides[slide.id]}
                                 show={currentShow}
                                 layoutSlide={slide}
@@ -159,7 +132,9 @@
                                 {altKeyPressed}
                                 {columns}
                                 on:click={(e) => {
-                                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey) activeEdit.set({ slide: i, items: [] })
+                                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                                        activeEdit.set({ slide: i, items: [], showId })
+                                    }
                                 }}
                             />
                         {/if}

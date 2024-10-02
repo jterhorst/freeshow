@@ -1,23 +1,26 @@
 <script lang="ts">
-    import { activeEdit, activeShow, refreshEditSlide } from "../../stores"
-    import OverlayEditor from "../edit/OverlayEditor.svelte"
-    import SlideEditor from "../edit/SlideEditor.svelte"
+    import { onMount } from "svelte"
+    import { activeEdit, drawer, refreshEditSlide } from "../../stores"
     import Splash from "../main/Splash.svelte"
-    import EffectEditor from "./EffectEditor.svelte"
-    import MediaEditor from "./MediaEditor.svelte"
-    import TemplateEditor from "./TemplateEditor.svelte"
+    import EffectEditor from "./editors/EffectEditor.svelte"
+    import MediaEditor from "./editors/MediaEditor.svelte"
+    import OverlayEditor from "./editors/OverlayEditor.svelte"
+    import SlideEditor from "./editors/SlideEditor.svelte"
+    import TemplateEditor from "./editors/TemplateEditor.svelte"
 
-    // $: if ($activeShow && $activeEdit.id) activeEdit.set({ slide: 0, items: [] })
-    // TODO: check if slide 0 exists
-    $: if ($activeShow && ($activeShow.type === undefined || $activeShow.type === "show") && ($activeEdit.slide === null || $activeEdit.slide === undefined) && !$activeEdit.id) activeEdit.set({ slide: 0, items: [] })
-
-    $: if ($refreshEditSlide)
+    $: if ($refreshEditSlide) {
         setTimeout(() => {
             refreshEditSlide.set(false)
         }, 100)
+    }
+
+    onMount(() => {
+        // close drawer
+        const minHeight = 40
+        if ($drawer.height > minHeight) drawer.set({ height: minHeight, stored: $drawer.height })
+    })
 </script>
 
-<!-- TODO: activeEdit, edit overlays, templates, ... -->
 {#key $refreshEditSlide}
     {#if $activeEdit.type === "overlay"}
         <OverlayEditor />
@@ -35,6 +38,3 @@
         <Splash />
     {/if}
 {/key}
-
-<style>
-</style>

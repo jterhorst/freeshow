@@ -28,6 +28,7 @@ export interface TabsObj {
         icon: string
         disabled?: boolean
         remove?: boolean
+        overflow?: boolean
     }
 }
 
@@ -38,6 +39,6 @@ export interface DrawerTabs {
     }
 }
 
-export type DrawerTabIds = "shows" | "media" | "overlays" | "audio" | "scripture" | "calendar" | "timers" | "templates" | "web"
+export type DrawerTabIds = "shows" | "media" | "overlays" | "audio" | "scripture" | "calendar" | "timers" | "templates" | "functions"
 export type SettingsTabs = "general" | "theme" | "groups" | "styles" | "display_settings" | "actions" | "connection" | "cloud" | "calendar" | "other"
 export type TopViews = "show" | "edit" | "reflow" | "draw" | "stage" | "calendar" | "settings"

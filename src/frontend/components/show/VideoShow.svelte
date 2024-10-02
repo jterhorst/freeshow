@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { activeProject, activeRename, dictionary, outLocked, outputs, playingVideos, projects, videoMarkers, volume } from "../../stores"
+    import type { MediaStyle } from "../../../types/Main"
+    import { activeProject, activeRename, dictionary, focusMode, outLocked, outputs, playingVideos, projects, videoMarkers, volume } from "../../stores"
     import Icon from "../helpers/Icon.svelte"
     import T from "../helpers/T.svelte"
     import { analyseAudio, getAnalyser } from "../helpers/audio"
@@ -13,10 +14,7 @@
 
     export let show
 
-    export let filter
-    export let flipped
-    export let fit
-    export let speed
+    export let mediaStyle: MediaStyle = {}
 
     let videoTime: number = 0
     let videoData = {
@@ -59,8 +57,30 @@
 
     function onLoad() {
         hasLoaded = true
+
+        if ($focusMode) {
+            // set right after loaded
+            setTimeout(() => {
+                videoData.paused = true
+                videoTime = videoData.duration ? videoData.duration / 2 : 0
+            })
+            return
+        }
+
         if (autoPause) videoData.paused = false
         else videoTime = 0
+    }
+
+    // player
+    $: if (show.type === "player") playerLoad()
+    function playerLoad() {
+        if (!$focusMode) return
+
+        // timeout for loading, because if the video is not loaded in time it will start playing, but that's fine
+        setTimeout(() => {
+            videoData.paused = true
+            videoTime = videoData.duration ? videoData.duration / 2 : 0
+        }, 2000)
     }
 
     let video: any
@@ -97,10 +117,10 @@
         let output = $outputs[getActiveOutputs()[0]] || {}
         let outputPath = output.out?.background?.path
 
-        if (e.key === " " && show && (!outputPath || outputPath !== show.id)) {
+        if (e.key === " " && !$focusMode && show && (!outputPath || outputPath !== show.id)) {
             e.preventDefault()
             if ((show!.type === "video" && outputPath !== show.id) || (show!.type === "player" && output.out?.background?.id !== show.id)) playVideo()
-            else if (show!.type === "image" && !$outLocked) setOutput("background", { path: show?.id, filter })
+            else if (show!.type === "image" && !$outLocked) setOutput("background", { path: show?.id, ...mediaStyle })
             // TODO: this will play first slide
             // else if (show.type === "section") goToNextProjectItem()
         }
@@ -109,7 +129,7 @@
     function playVideo(startAt: number = 0) {
         if ($outLocked) return
 
-        let bg: any = { type: show!.type, startAt, loop: false, filter, flipped, fit, speed }
+        let bg: any = { type: show!.type, startAt, muted: false, loop: false, ...mediaStyle }
 
         if (show!.type === "player") bg.id = show!.id
         else {
@@ -126,7 +146,7 @@
         setOutput("background", bg)
     }
 
-    $: if (video && speed) video.playbackRate = speed
+    $: if (video && mediaStyle.speed) video.playbackRate = mediaStyle.speed
 
     // MARKER
 
@@ -143,7 +163,8 @@
             // sort by time
             a[show.id] = a[show.id].sort((a, b) => a.time - b.time)
 
-            activeRename.set("marker_" + (a[show.id].length - 1))
+            let markerIndex = a[show.id].findIndex((a) => a.time === newMarker.time)
+            activeRename.set("marker_" + markerIndex)
 
             return a
         })
@@ -186,7 +207,7 @@
             {:else}
                 <!-- TODO: on:error={videoError} - ERR_FILE_NOT_FOUND -->
                 <video
-                    style="width: 100%;height: 100%;filter: {filter};{flipped ? 'transform: scaleX(-1);' : ''}"
+                    style="width: 100%;height: 100%;filter: {mediaStyle.filter || ''};transform: scale({mediaStyle.flipped ? '-1' : '1'}, {mediaStyle.flippedY ? '-1' : '1'});"
                     src={show.id}
                     on:loadedmetadata={onLoad}
                     on:playing={onPlay}
@@ -259,7 +280,7 @@
                 <Icon id="timeMarker" white={!timeMarkersEnabled} size={1.2} />
             </Button>
         </div>
-    {:else}
+    {:else if !$focusMode}
         <Button on:click={() => (previewControls = true)} style="background-color: var(--primary-darkest);" center dark>
             <Icon id="eye" right />
             <T id="preview.enable_controls" />

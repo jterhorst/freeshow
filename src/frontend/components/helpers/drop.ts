@@ -2,24 +2,28 @@ import { get } from "svelte/store"
 import { activePage, selected } from "../../stores"
 import { dropActions } from "./dropActions"
 import { history } from "./history"
+import { deselect } from "./select"
 
-const areas: any = {
+export type DropAreas = "all_slides" | "slides" | "slide" | "edit" | "shows" | "project" | "projects" | "overlays" | "templates" | "navigation" | "audio_playlist"
+
+const areas: { [key in DropAreas | string]: string[] } = {
     all_slides: ["template"],
-    slides: ["media", "audio", "overlay", "sound", "screen", "camera", "microphone", "show", "midi"], // group
+    slides: ["media", "audio", "overlay", "sound", "screen", "camera", "microphone", "scripture", "trigger", "audio_stream", "metronome", "show", "midi", "action"], // group
     // slide: ["overlay", "sound", "camera"], // "media",
     // projects: ["folder"],
-    project: ["show_drawer", "media", "audio", "player"],
+    project: ["show_drawer", "media", "audio", "player", "scripture"],
     overlays: ["slide"],
     templates: ["slide"],
     edit: ["media"],
     // media_drawer: ["file"],
 }
-const areaChildren: any = {
+const areaChildren: { [key in DropAreas | string]: string[] } = {
     projects: ["folder", "project"],
     project: ["show", "media", "audio", "show_drawer", "player"],
     slides: ["slide", "group", "global_group", "screen", "camera", "microphone", "media", "audio", "show"],
     all_slides: [],
-    navigation: ["show", "show_drawer", "media", "overlay", "template"],
+    navigation: ["show", "show_drawer", "media", "audio", "overlay", "template"],
+    audio_playlist: ["audio"],
 }
 
 export function validateDrop(id: string, selected: any, children: boolean = false): boolean {
@@ -34,7 +38,7 @@ export function ondrop(e: any, id: string) {
     let elem: any = null
     if (e !== null) {
         // if (id === "project" || sel.id === "slide" || sel.id === "group" || sel.id === "global_group" || sel.id === "media") elem = e.target.closest(".selectElem")
-        if (id === "project" || id === "projects" || id === "slides" || id === "all_slides" || id === "navigation") elem = e.target.closest(".selectElem")
+        if (id === "project" || id === "projects" || id === "slides" || id === "all_slides" || id === "navigation" || id === "templates" || id === "audio_playlist") elem = e.target.closest(".selectElem")
         else if (id === "slide") elem = e.target.querySelector(".selectElem")
     }
 
@@ -43,7 +47,7 @@ export function ondrop(e: any, id: string) {
     let index: undefined | number = data.index
     let center: boolean = false
     if (trigger?.includes("center")) center = true
-    if (index !== undefined && trigger?.includes("end") && areaChildren[id]?.includes(sel.id)) index++
+    if (index !== undefined && trigger?.includes("end") && areaChildren[id]?.includes(sel.id || "")) index++
 
     console.log("DRAG: ", sel)
     console.log("DROP: ", id, data, trigger, center, index)
@@ -53,7 +57,7 @@ export function ondrop(e: any, id: string) {
 
         h = dropActions[id](dropData, h)
         if (h && h.id) history(h)
-        selected.set({ id: null, data: [] })
+        deselect()
         return
     }
 

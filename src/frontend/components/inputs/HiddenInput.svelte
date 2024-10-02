@@ -1,6 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher } from "svelte"
-    import { activeRename, dictionary } from "../../stores"
+    import { activeProject, activeRename, dictionary, projectView } from "../../stores"
 
     export let value: string = ""
     export let style: string = ""
@@ -8,13 +8,7 @@
     export let allowEmpty: boolean = true
     export let allowEdit: boolean = true
 
-    $: value = edit ? (value.endsWith(" ") ? removeWhitespace(value) + " " : removeWhitespace(value)) : value.trim()
-
-    const removeWhitespace = (v: string) =>
-        v
-            .split(" ")
-            .filter((n) => n)
-            .join(" ")
+    $: value = edit ? value.replaceAll("  ", " ") : value.trim()
 
     let nameElem: HTMLParagraphElement, inputElem: HTMLInputElement
     export let edit: boolean | string = false
@@ -23,7 +17,7 @@
     const click = (e: any) => {
         if (e.target === nameElem) {
             //  || e.target.closest(".contextMenu")
-            edit = id
+            activeRename.set(id)
             prevVal = value
             setTimeout(() => inputElem?.focus(), 10)
         } else if (e.target !== inputElem) {
@@ -54,6 +48,34 @@
         activeRename.set(null)
     }
 
+    function keydown(e) {
+        if (e.key === "Enter" || e.key === "Tab") {
+            if ($activeRename?.includes("project_") && $activeProject === $activeRename.slice($activeRename.indexOf("_") + 1)) {
+                setTimeout(() => projectView.set(false), 20)
+            }
+
+            edit = false
+            activeRename.set(null)
+
+            return
+        }
+
+        if (edit !== id) return
+
+        // disable space clicking on button
+        if (e.key !== " " || !e.target?.classList.contains("_rename")) return
+        e.preventDefault()
+
+        let pos = e.target.selectionStart
+        if (pos + 1 < value.length) value = value.trim()
+        value = value.slice(0, pos) + " " + value.slice(pos)
+        setTimeout(() => {
+            console.log(pos)
+            e.target.selectionStart = pos + 1
+            e.target.selectionEnd = pos + 1
+        })
+    }
+
     const dispatch = createEventDispatcher()
     function change(e: any) {
         let value = e.target.value
@@ -66,24 +88,7 @@
     }
 </script>
 
-<svelte:window
-    on:mousedown={mousedown}
-    on:mouseup={() => clearTimeout(timeout)}
-    on:dragstart={() => clearTimeout(timeout)}
-    on:keydown={(e) => {
-        // disable space clicking on button
-        if (e.target?.classList.contains("_rename") && e.key === " ") {
-            e.preventDefault()
-            value += " "
-            return
-        }
-
-        if (e.key === "Enter" || e.key === "Tab") {
-            edit = false
-            activeRename.set(null)
-        }
-    }}
-/>
+<svelte:window on:mousedown={mousedown} on:mouseup={() => clearTimeout(timeout)} on:dragstart={() => clearTimeout(timeout)} on:keydown={keydown} />
 <!-- on:contextmenu={click} -->
 
 {#if edit === id && allowEdit}

@@ -1,27 +1,19 @@
 <script lang="ts">
     import { createEventDispatcher } from "svelte"
-    import type { MediaFit } from "../../../types/Main"
-    import { volume } from "../../stores"
-    import { getStyleResolution } from "../slide/getStyleResolution"
+    import type { MediaStyle } from "../../../types/Main"
+    import { encodeFilePath } from "../helpers/media"
 
     export let path: any
-    export let video: any
+    export let video: any = null
     export let videoData: any
     export let videoTime: any
-
     export let startAt: number = 0
+
+    export let mediaStyle: MediaStyle = {}
+    export let animationStyle: string = ""
     export let mirror: boolean = false
 
-    export let filter: string = ""
-    export let flipped: boolean = false
-    export let fit: MediaFit = "contain"
-    export let speed: string = "1"
-
-    export let animationStyle: string = ""
-
     let dispatch: any = createEventDispatcher()
-    let width: number = 0
-    let height: number = 0
 
     let hasLoaded: boolean = false
     function loaded() {
@@ -29,44 +21,57 @@
         dispatch("loaded", true)
     }
 
+    // custom end time
+    $: endTime = (mediaStyle.toTime || 0) - (mediaStyle.fromTime || 0) > 0 ? mediaStyle.toTime : 0
+    let endInterval: any = null
+    $: if (endTime && !mirror && !endInterval) endInterval = setInterval(checkIfEnded, 1000 * playbackRate)
+    function checkIfEnded() {
+        if (!videoTime || !endTime) return
+        if (videoTime >= endTime!) {
+            if (videoData.loop) videoTime = mediaStyle.fromTime || 0
+            else dispatch("ended")
+        }
+    }
+
     function playing() {
         if (!hasLoaded || mirror) return
         hasLoaded = false
-        dispatch("playing", true)
 
+        // go to custom start time
         videoData.paused = true
         setTimeout(() => {
-            videoTime = startAt || 0
+            videoTime = Math.max(startAt, mediaStyle.fromTime || 0) || 0
             videoData.paused = false
             startAt = 0
         }, 50)
     }
 
-    $: if (speed && video) video.playbackRate = Number(speed)
+    $: playbackRate = Number(mediaStyle.speed) || 1
+    // $: audioVolume = Math.max(0, Math.min(1, $volume ?? 1))
 
-    $: audioVolume = Math.max(0, Math.min(1, $volume ?? 1))
-
-    $: console.log(filter)
+    // path starting at "/" auto completes to app root, but should be file://
+    $: if (path[0] === "/") path = `file://${path}`
 </script>
 
-<div style="display: flex;width: 100%;height: 100%;place-content: center;{animationStyle}" bind:clientWidth={width} bind:clientHeight={height}>
+<div style="display: flex;width: 100%;height: 100%;place-content: center;{animationStyle}">
     <video
         class="media"
-        style="{getStyleResolution({ width: video?.videoWidth || 0, height: video?.videoHeight || 0 }, width, height, fit)};filter: {filter};{flipped ? 'transform: scaleX(-1);' : ''}"
+        style="width: 100%;height: 100%;object-fit: {mediaStyle.fit};filter: {mediaStyle.filter || ''};transform: scale({mediaStyle.flipped ? '-1' : '1'}, {mediaStyle.flippedY ? '-1' : '1'});"
         bind:this={video}
         on:loadedmetadata={loaded}
         on:playing={playing}
         on:ended
         on:error
+        bind:playbackRate
         bind:currentTime={videoTime}
         bind:paused={videoData.paused}
         bind:duration={videoData.duration}
-        bind:volume={audioVolume}
         muted={mirror ? true : videoData.muted ?? true}
-        src={path}
+        src={encodeFilePath(path)}
         autoplay
         loop={videoData.loop || false}
     >
+        <!-- bind:volume={audioVolume} -->
         <track kind="captions" />
     </video>
 </div>

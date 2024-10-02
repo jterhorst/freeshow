@@ -16,11 +16,12 @@
     export let outline: boolean = false
     export let buttons: boolean = true
     export let disabled: boolean = false
+    export let disableHold: boolean = false
 
     const dispatch = createEventDispatcher()
     const increment = (customStep: number = step) => dispatch("change", Math.min(Number(value) + customStep, max).toFixed(decimals))
     const decrement = (customStep: number = step) => dispatch("change", Math.max(Number(value) - customStep, min).toFixed(decimals))
-    // TODO: reset if not number....
+
     const input = (e: any) => {
         let inputValue = e.target.value || 0
         inputValue = new Function(`return ${inputValue}`)() // calculate without eval()
@@ -32,30 +33,43 @@
     let timeout: any = null
     let interval: any = null
     function mousedown(e: any) {
-        if (e.target.closest("button")) {
-            timeout = setTimeout(() => {
-                let increase = true
-                if (e.target.closest("button").id === "decrement") increase = false
-                interval = setInterval(() => {
-                    if (increase) increment()
-                    else decrement()
-                }, 50)
-                // timeout = null
-            }, 500)
-        }
+        if (disableHold || !e.target.closest("button")) return
+
+        // auto change when holding value
+        // slow updates in edit caused this to create infinite loops (value didn't update)
+        timeout = setTimeout(() => {
+            if (!timeout) return
+
+            let increase = true
+            if (e.target.closest("button").id === "decrement") increase = false
+
+            let loopPrevention = 0
+            interval = setInterval(() => {
+                // stop after 50 updates
+                if (loopPrevention > 50) return
+                loopPrevention++
+
+                if (increase) increment()
+                else decrement()
+            }, 100)
+
+            timeout = null
+        }, 500)
     }
 
     let nextScrollTimeout: any = null
     function wheel(e: any) {
-        if (disabled) return
-        if (nextScrollTimeout) return
-
+        if (disabled || nextScrollTimeout) return
+        if (!e.ctrlKey && !e.metaKey) return
         e.preventDefault()
-        if (e.deltaY > 0) decrement(e.ctrlKey || e.metaKey ? step * 10 : step)
-        else increment(e.ctrlKey || e.metaKey ? step * 10 : step)
+
+        let stepAmount = step * (e.shiftKey ? 10 : 1)
+
+        if (e.deltaY > 0) decrement(stepAmount)
+        else increment(stepAmount)
 
         // don't start timeout if scrolling with mouse
-        if (e.deltaY > 100 || e.deltaY < -100) return
+        if (e.deltaY >= 100 || e.deltaY <= -100) return
         nextScrollTimeout = setTimeout(() => {
             nextScrollTimeout = null
         }, 500)
@@ -73,7 +87,7 @@
 
 <span class="numberInput" {style} on:mousedown={mousedown} on:wheel={wheel} class:disabled class:outline>
     {#if buttons}
-        <Button id="decrement" on:click={() => decrement()} center style={"flex: 1;"} disabled={disabled || Number(value) - step < min}>
+        <Button id="decrement" on:click={(e) => decrement(e.ctrlKey || e.metaKey ? step * 10 : step)} center style={"flex: 1;"} disabled={disabled || Number(value) - step < min}>
             <Icon id="remove" size={1.2} white />
         </Button>
     {/if}
@@ -81,7 +95,7 @@
         <TextInput {disabled} value={(value * inputMultiplier).toFixed(fixed)} on:change={input} center />
     </span>
     {#if buttons}
-        <Button id="increment" on:click={() => increment()} center style={"flex: 1;"} disabled={disabled || Number(value) + step > max}>
+        <Button id="increment" on:click={(e) => increment(e.ctrlKey || e.metaKey ? step * 10 : step)} center style={"flex: 1;"} disabled={disabled || Number(value) + step > max}>
             <Icon id="add" size={1.2} white />
         </Button>
     {/if}
@@ -90,8 +104,9 @@
 <style>
     .numberInput {
         display: flex;
-        align-items: center;
+        /* align-items: center; */
         background-color: var(--primary-darker);
+        border-radius: var(--border-radius);
         flex-flow: wrap;
         transition: opacity 0.3s;
     }

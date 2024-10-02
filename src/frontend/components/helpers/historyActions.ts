@@ -1,15 +1,19 @@
 import { get } from "svelte/store"
 import { uid } from "uid"
-import type { ItemType, Slide } from "../../../types/Show"
+import type { Slide } from "../../../types/Show"
 import { removeItemValues } from "../../show/slides"
-import { activeEdit, activePage, activePopup, activeShow, alertMessage, cachedShowsData, deletedShows, driveData, notFound, refreshEditSlide, renamedShows, shows, showsCache, templates } from "../../stores"
+import { activeEdit, activePage, activePopup, activeProject, activeShow, alertMessage, cachedShowsData, deletedShows, driveData, groups, notFound, projects, refreshEditSlide, renamedShows, shows, showsCache, templates } from "../../stores"
 import { save } from "../../utils/save"
+import { EMPTY_SHOW_SLIDE } from "../../values/empty"
+import { customActionActivation } from "../actions/actions"
 import { clone, keysToID } from "./array"
-import { EMPTY_SHOW_SLIDE } from "./empty"
+import { history } from "./history"
 import { _updaters } from "./historyHelpers"
 import { addToPos } from "./mover"
+import { getItemsCountByType, isEmptyOrSpecial, mergeWithTemplate, updateLayoutsFromTemplate, updateSlideFromTemplate } from "./output"
+import { loadShows, saveTextCache } from "./setShow"
+import { getShowCacheId } from "./show"
 import { _show } from "./shows"
-import { loadShows } from "./setShow"
 
 // TODO: move history switch to actions
 
@@ -18,23 +22,11 @@ export const historyActions = ({ obj, undo = null }: any) => {
     let initializing: boolean = undo === null
 
     if (obj) {
-        console.log(obj, undo)
         data = obj.newData || {}
         // if (initializing && !obj.oldData) obj.oldData = clone(obj.newData) // WIP
     }
 
     const actions = {
-        // SAVE: () => {
-        //     // don't do anything if creating
-        //     if (initializing) return
-
-        //     // if (!get(saved))
-
-        //     // restore
-        //     data = undo ? obj.oldData : obj.newData
-        //     let id: string = data.id
-        //     send(MAIN, ["READ_SAVED_CACHE"], { id })
-        // },
         UPDATE: () => {
             // create / delete / duplicate a full store (or a full key, or set indexes)
             if (!obj.location?.id) return error("no updater id")
@@ -61,7 +53,8 @@ export const historyActions = ({ obj, undo = null }: any) => {
                 id = obj.oldData?.id || uid()
                 if (keys && !key) id = "keys"
 
-                if (initializing && empty && updater.initialize) data.data = updater.initialize(data.data)
+                if (initializing && obj.location.id === "show") customActionActivation("show_created")
+                if (initializing && empty && updater.initialize) data.data = updater.initialize(data.data, id)
 
                 if (data.replace) {
                     data.data = { ...data.data, ...data.replace }
@@ -80,6 +73,16 @@ export const historyActions = ({ obj, undo = null }: any) => {
             })
 
             if (!deleting && updater.select) updater.select(id, data, initializing)
+
+            // update small shows cache
+            if (obj.location?.id === "show_key" && key === "quickAccess") {
+                shows.update((a) => {
+                    if (!a[id]) return a
+                    if (deleting && data.previousData) a[id].quickAccess = data.previousData
+                    else a[id].quickAccess = data.data
+                    return a
+                })
+            }
 
             if (!initializing) return
 
@@ -100,7 +103,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
                     // reverting value with array index will restore the whole array
                     if (previousData && index !== undefined) index = undefined
 
-                    if (previousData) return updateKeyData(a, previousData)
+                    if (previousData !== undefined) return updateKeyData(a, previousData)
                     else {
                         if (subkey) delete a[id][key][subkey]
                         else delete a[id][key]
@@ -131,7 +134,10 @@ export const historyActions = ({ obj, undo = null }: any) => {
                 data = { ...data, data: clone(a[id]) }
 
                 if (previousData) a[id] = previousData
-                else delete a[id]
+                else {
+                    if (updater.cloudCombine) a[id] = { id, deleted: true }
+                    else delete a[id]
+                }
 
                 return a
             }
@@ -139,7 +145,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
             function updateElement(a) {
                 // TODO: check for duplicates!!???
                 if (key) {
-                    data.previousData = clone(filterIndexes(a[id][key], subkey, { indexes, keys }))
+                    data.previousData = clone(filterIndexes(a[id][key] ?? {}, subkey, { indexes, keys }))
                     a = updateKeyData(a, data.data)
                 } else if (keys) {
                     // if just keys, but no "key"
@@ -156,6 +162,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
 
                 if (subkey && index !== undefined && index > -1 && !Array.isArray(a[id][key][subkey])) delete data.previousData
 
+                if (initializing && updater.timestamp) a[id].modified = Date.now()
                 if (data.previousData === data.data) error("Previous data is the same as current data. Try using clone()!")
                 return a
             }
@@ -205,6 +212,8 @@ export const historyActions = ({ obj, undo = null }: any) => {
                 }
 
                 if (subkey) {
+                    if (!a[id][key]) a[id][key] = {}
+
                     // insert at index
                     if (index !== undefined && Array.isArray(a[id][key][subkey])) {
                         if (index === -1) a[id][key][subkey].push(newValue)
@@ -261,7 +270,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
             let oldShows: any = {}
             let rename: any = {}
 
-            // load shows cache
+            // load shows cache (to save in undo history)
             if (deleting && showsList.length < 20) {
                 await loadShows(showsList.map((a) => a.id))
             }
@@ -289,16 +298,17 @@ export const historyActions = ({ obj, undo = null }: any) => {
                             a[id] = { ...a[id], ...show }
 
                             // rename
-                            let oldName = get(shows)[id].name
-                            if (show.name !== undefined && oldName !== show.name) {
-                                rename[id] = { name: show.name || id, oldName: oldName }
+                            let oldName = get(shows)[id]?.name
+                            if (show.name !== undefined && oldName && oldName !== show.name) {
+                                rename[id] = { name: show.name || id, oldName }
                             }
                             return
                         }
 
                         a[id] = show
-                        // skip text cache for faster import
-                        // saveTextCache(id, show)
+
+                        // this can slow down large show imports a little bit
+                        saveTextCache(id, show)
                     }
                 })
                 return a
@@ -332,17 +342,20 @@ export const historyActions = ({ obj, undo = null }: any) => {
 
                     a[id] = {
                         name: show.name || a[id]?.name || "",
-                        category: show.category === undefined ? a[id].category : show.category,
-                        timestamps: show.timestamps || a[id].timestamps,
+                        category: show.category === undefined ? a[id]?.category : show.category,
+                        timestamps: show.timestamps || a[id]?.timestamps,
+                        quickAccess: show.quickAccess || a[id]?.quickAccess,
                     }
 
                     if (show.private) a[id].private = true
                     else if (a[id].private) delete a[id].private
+                    if (show.locked) a[id].locked = true
+                    else if (a[id].locked) delete a[id].locked
 
                     let newShow = clone(a[id])
                     if (newShow?.timestamps) delete newShow.timestamps.used
 
-                    if (initializing && oldShow && JSON.stringify(oldShow) !== JSON.stringify(newShow)) duplicates.push(show.name)
+                    if (initializing && !replace && oldShow && JSON.stringify(oldShow) !== JSON.stringify(newShow)) duplicates.push(show.name)
                 })
                 return a
             })
@@ -374,12 +387,27 @@ export const historyActions = ({ obj, undo = null }: any) => {
 
             if (!deleting && Object.keys(get(showsCache)).length >= 100) {
                 // store all to files
-                save()
+                if (initializing) save()
                 // then delete showsCache
                 setTimeout(() => {
                     showsCache.set({})
                     activeShow.set(null)
                 }, 2000)
+            }
+
+            if (deleting && initializing) {
+                // remove any show in the active project
+                // only active because of undo
+                if (get(activeProject)) {
+                    let shows = get(projects)[get(activeProject)!]?.shows || []
+                    let newShows = shows
+                    showsList.forEach(({ id }) => {
+                        newShows = newShows.filter((a) => a.id !== id)
+                    })
+                    if (showsList.length < shows.length) {
+                        history({ id: "UPDATE", newData: { key: "shows", data: newShows }, oldData: { id: get(activeProject) }, location: { page: "show", id: "project_key" } })
+                    }
+                }
             }
         },
         SLIDES: () => {
@@ -450,6 +478,8 @@ export const historyActions = ({ obj, undo = null }: any) => {
                 if (deleting) {
                     // update layout
                     showsCache.update((a) => {
+                        if (!a[showId]) return a
+
                         let slides = a[showId].layouts[layout].slides
                         let newSlides = clone(slides).filter((a, i) => (slideIndex !== undefined ? i !== slideIndex : a.id !== id))
 
@@ -522,6 +552,11 @@ export const historyActions = ({ obj, undo = null }: any) => {
                         let id: string = ""
                         let cloudId = get(driveData).mediaId
                         if (layoutValue.background && cloudId && cloudId !== "default") id = layoutValue.background
+
+                        // find existing
+                        let existingBackgrounds = _show(showId).get("media")
+                        let existingId = Object.keys(existingBackgrounds).find((id) => existingBackgrounds[id].path === background.path)
+                        if (existingId) id = existingId
 
                         let bgId = _show(showId).media().add(background, id)
                         layoutValue.background = bgId
@@ -683,6 +718,8 @@ export const historyActions = ({ obj, undo = null }: any) => {
             }
 
             let show = get(showsCache)[data.remember.showId]
+            if (!show) return
+            let previousShow: string = JSON.stringify(show)
             let slides: any = show.slides || {}
 
             let ref = _show(data.remember.showId).layouts([data.remember.layout]).ref()[0]
@@ -697,10 +734,10 @@ export const historyActions = ({ obj, undo = null }: any) => {
                 _show(data.remember.showId).set({ key: "slides", value: previousData.slides || {} })
                 _show(data.remember.showId).set({ key: "settings.template", value: previousData.template })
             } else {
-                data.previousData = { template: show.settings.template, slides: clone(slides) }
+                data.previousData = clone({ template: show.settings?.template, slides: slides })
                 let templateId: string = data.id
 
-                _show(data.remember.showId).set({ key: "settings.template", value: slideId ? null : templateId })
+                if (templateId && !slideId && show.settings?.template !== templateId) _show(data.remember.showId).set({ key: "settings.template", value: slideId ? null : templateId })
 
                 let template = clone(get(templates)[templateId])
                 updateSlidesWithTemplate(template)
@@ -710,7 +747,8 @@ export const historyActions = ({ obj, undo = null }: any) => {
 
             // update cached show
             cachedShowsData.update((a) => {
-                a[data.remember.showId].template.slidesUpdated = true
+                let customId = getShowCacheId(data.remember.showId, null, data.remember.layout)
+                if (a[customId]?.template?.slidesUpdated) a[customId].template.slidesUpdated = true
                 return a
             })
 
@@ -720,86 +758,71 @@ export const historyActions = ({ obj, undo = null }: any) => {
             else obj.newData = clone(data)
 
             function updateSlidesWithTemplate(template: any) {
-                if (!template?.items?.length) return
+                Object.entries(slides).forEach(([id, slide]: any) => {
+                    if ((slideId && slideId !== id) || !slide) return
 
-                console.log("TEMPLATE", template)
-                console.log(slides)
+                    // show template
+                    let slideTemplate = template
+                    let isGlobalTemplate = true
+                    // slide template
+                    if (slide.settings?.template) {
+                        slideTemplate = clone(get(templates)[slide.settings.template]) || template
+                        isGlobalTemplate = false
+                    } else {
+                        // group template
+                        let isChild = slide.group === null
+                        let globalGroup = slide.globalGroup
+                        if (isChild) {
+                            let parent = Object.values(show.slides || {}).find((a) => a.children?.includes(id))
+                            globalGroup = parent?.globalGroup
+                        }
+                        if (globalGroup && get(groups)[globalGroup]?.template) {
+                            slideTemplate = clone(get(templates)[get(groups)[globalGroup]?.template]) || template
+                            isGlobalTemplate = false
+                        }
+                    }
+
+                    if (!slideTemplate?.items?.length) return
+
+                    // roll items around
+                    let newTemplate = data.previousData.template !== data.id
+                    if (createItems && !slide.settings?.template && !newTemplate) slide.items = [...slide.items.slice(1), slide.items[0]].filter((a) => a)
+
+                    let changeOverflowItems = slide.settings?.template || createItems
+                    let newItems = mergeWithTemplate(slide.items, slideTemplate.items, changeOverflowItems, obj.save !== false)
+
+                    // remove items if not in template (and textbox is empty)
+                    if (changeOverflowItems) {
+                        let templateItemCount = getItemsCountByType(slideTemplate.items)
+                        let slideItemCount = getItemsCountByType(newItems)
+                        newItems = newItems.filter((a) => {
+                            let type = a.type || "text"
+                            if (templateItemCount[type] - slideItemCount[type] >= 0) return true
+                            if (type === "text" && !isEmptyOrSpecial(a)) return true
+
+                            // remove item
+                            slideItemCount[type]--
+                            return false
+                        })
+                    }
+
+                    show.slides[id].items = clone(newItems)
+
+                    if (!isGlobalTemplate) return
+
+                    // set custom values
+                    let isFirst = !!Object.values(show.layouts || {}).find((layout) => layout.slides[0]?.id === id)
+                    show.slides[id] = updateSlideFromTemplate(show.slides[id], slideTemplate, isFirst, changeOverflowItems)
+                    let newLayoutData = updateLayoutsFromTemplate(show.layouts, show.media, slideTemplate, changeOverflowItems)
+                    show.layouts = newLayoutData.layouts
+                    show.media = newLayoutData.media
+                })
+
+                // don't update if show has not changed
+                if (obj.save === false && JSON.stringify(show) === previousShow) return
 
                 showsCache.update((a) => {
-                    Object.entries(slides).forEach(([id, slide]: any) => {
-                        if ((slideId && slideId !== id) || !slide) return
-
-                        // roll items around
-                        if (createItems) slide.items = [...slide.items.slice(1), slide.items[0]].filter((a) => a)
-                        // let addedItems = 0
-
-                        let itemTypeIndex: any = {}
-                        template.items.forEach((item: any) => {
-                            // find the same type at same index
-                            let type: ItemType = item.type || "text"
-                            if (itemTypeIndex[type] === undefined) itemTypeIndex[type] = -1
-                            itemTypeIndex[type]++
-
-                            let tempCount = -1
-                            let itemIndex = slide.items.findIndex((a) => {
-                                if (!a) return false
-
-                                let itemType = a.type || "text"
-                                if (itemType === type) tempCount++
-                                if (tempCount === itemTypeIndex[type]) return true
-                                return false
-                            })
-
-                            // add item
-                            if (itemIndex < 0) {
-                                if (!createItems) return
-
-                                // remove text from template & add to slide
-                                if (item.lines) item.lines = item.lines.map((line) => ({ align: line.align, text: [{ style: line.text?.[0]?.style, value: "" }] }))
-                                slide.items.push(item)
-                                // slide.items = [item, ...slide.items]
-                                // addedItems++
-
-                                return
-                            }
-
-                            // itemIndex += addedItems
-
-                            if (type !== "text") {
-                                slide.items[itemIndex] = item
-                                return
-                            }
-
-                            slide.items[itemIndex].auto = item.auto || false
-                            slide.items[itemIndex].actions = item.actions || {}
-                            slide.items[itemIndex].chords = item.chords || {}
-                            slide.items[itemIndex].specialStyle = item.specialStyle || {}
-                            slide.items[itemIndex].scrolling = item.scrolling || {}
-                            slide.items[itemIndex].bindings = item.bindings || []
-                            slide.items[itemIndex].style = item.style || ""
-                            slide.items[itemIndex].align = item.align || ""
-                            slide.items[itemIndex].lines?.forEach((line: any, j: number) => {
-                                let templateLine = item.lines?.[j] || item.lines?.[0]
-                                line.align = templateLine?.align || ""
-                                line.text?.forEach((text: any, k: number) => {
-                                    let textStyle: string = templateLine?.text?.[k]?.style || templateLine?.text?.[0]?.style || ""
-                                    text.style = textStyle
-                                })
-                            })
-                        })
-
-                        slide.items.forEach((item: any, i: number) => {
-                            // remove item if template don't have it and it's empty
-                            if (i < template.items.length) return
-                            let text: number = item.lines?.reduce((value, line) => (value += line.text?.reduce((value, text) => (value += text.value.length), 0)), 0)
-                            if (text) return
-
-                            slide.items.splice(i, 1)
-                        })
-
-                        a[data.remember.showId].slides[id] = clone(slide)
-                    })
-
+                    a[data.remember.showId] = show
                     return a
                 })
             }
@@ -833,6 +856,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
 
             function updateLayoutSlides() {
                 showsCache.update((a: any) => {
+                    if (!a[data.remember.showId]) return a
                     let layoutSlides = a[data.remember.showId].layouts[data.remember.layout].slides
 
                     let currentIndex = -1
@@ -940,7 +964,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
         console.error(obj.id, "HISTORY ERROR:", msg)
     }
 
-    if (obj) console.info(obj.id, "HISTORY " + (initializing ? "INIT" : undo ? "UNDO" : "REDO") + ":", clone(obj))
+    if (obj) console.info("HISTORY " + (initializing ? "INIT" : undo ? "UNDO" : "REDO") + ` [${obj.id}]:`, clone(obj))
 
     return actions
 }

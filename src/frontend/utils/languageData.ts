@@ -2,6 +2,7 @@ export const languages: any = {
     // language_identifier: "Language name in original language", // Language name in English
     en: "English", // English
     en_GB: "English (British)", // English (British)
+    en_ZM: "English (Zambia)", // English (Zambia)
     no: "Norsk", // Norwegian
     sk: "Slovenčina", // Slovak
     es: "Español", // Spanish
@@ -11,8 +12,13 @@ export const languages: any = {
     pl: "Polski", // Polish
     hu: "Magyar", // Hungarian
     sr: "Srpski", // Serbian
-    si: "Slovenščina", // Slovenian
+    sl: "Slovenščina", // Slovenian
     ua: "Українська", // Ukrainian
+    tr: "Türkçe", // Turkish
+    fr_FR: "Français", // French
+    ru: "Русский", // Russian
+    ko: "한국인", // Korean
+    nl: "Nederlands", // Dutch
 }
 
 // Help: https://developers.google.com/search/docs/advanced/crawling/localized-versions#language-codes
@@ -20,9 +26,10 @@ export const languages: any = {
 // Region: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
 export const replace: any = {
     // language_identifier: ["browser language/region code"],
-    en: ["en-US", "en-AU"],
-    en_GB: ["en-GB", "en-ZM"],
-    no: ["nb", "nn"],
+    en: ["en", "en-US", "en-AU"],
+    en_GB: ["en-GB"],
+    en_ZM: ["en-ZM"],
+    no: ["no", "nb", "nn"],
     sk: ["sk"],
     es: ["es"],
     pt_BR: ["pt-BR"],
@@ -31,6 +38,33 @@ export const replace: any = {
     pl: ["pl"],
     hu: ["hu"],
     sr: ["sr"],
-    si: ["si", "sl"],
+    sl: ["si", "sl"],
     ua: ["ua", "uk"],
+    tr: ["tr"],
+    fr_FR: ["fr", "fr-FR"],
+    ru: ["ru"],
+    ko: ["ko"],
+    nl: ["nl"],
+}
+
+export const languageFlags: any = {
+    en: "🇺🇸",
+    en_GB: "🇬🇧",
+    en_ZM: "🇿🇲",
+    no: "🇳🇴",
+    sk: "🇸🇰",
+    es: "🇪🇸",
+    pt_BR: "🇧🇷",
+    de: "🇩🇪",
+    it: "🇮🇹",
+    pl: "🇵🇱",
+    hu: "🇭🇺",
+    sr: "🇷🇸",
+    sl: "🇸🇮",
+    ua: "🇺🇦",
+    tr: "🇹🇷",
+    fr_FR: "🇫🇷",
+    ru: "🇷🇺",
+    ko: "🇰🇷",
+    nl: "🇳🇱",
 }

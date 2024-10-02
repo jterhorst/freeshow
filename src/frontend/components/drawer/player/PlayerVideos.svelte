@@ -1,7 +1,9 @@
 <script lang="ts">
-    import { activeShow, outLocked, outputs, playerVideos } from "../../../stores"
+    import { activeFocus, activeShow, focusMode, outLocked, outputs, playerVideos } from "../../../stores"
+    import { clone, sortByName } from "../../helpers/array"
     import { findMatchingOut, setOutput } from "../../helpers/output"
     import T from "../../helpers/T.svelte"
+    import { clearBackground } from "../../output/clear"
     import Center from "../../system/Center.svelte"
     import SelectElem from "../../system/SelectElem.svelte"
     import Card from "../Card.svelte"
@@ -9,17 +11,18 @@
     export let active: any
     export let searchValue: string = ""
 
-    $: videos = Object.entries($playerVideos)
-        .map(([id, video]: any) => ({ rid: id, ...video }))
-        .filter((a) => a.type === active)
-        .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    $: videos = sortByName(
+        Object.entries($playerVideos)
+            .map(([id, video]: any) => ({ rid: id, ...video }))
+            .filter((a) => a.type === active)
+    )
 
     // search
     $: if (videos || searchValue !== undefined) filterSearch()
     const filter = (s: string) => s.toLowerCase().replace(/[.,\/#!?$%\^&\*;:{}=\-_`~()]/g, "")
     let fullFilteredVideos: any[] = []
     function filterSearch() {
-        fullFilteredVideos = JSON.parse(JSON.stringify(videos))
+        fullFilteredVideos = clone(videos)
         if (searchValue.length > 1) fullFilteredVideos = fullFilteredVideos.filter((a) => filter(a.name).includes(searchValue))
     }
 
@@ -35,14 +38,13 @@
             return `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`
         }
         if (active === "vimeo") {
-            return `https://vumbnail.com/${videoId}.jpg`
+            return `https://vumbnail.com/${videoId}_medium.jpg`
         }
 
         return ""
     }
 </script>
 
-<!-- TODO: loading -->
 {#if fullFilteredVideos.length}
     {#each fullFilteredVideos as video}
         <Card
@@ -52,18 +54,23 @@
             active={findMatchingOut(video.rid, $outputs) !== null}
             outlineColor={findMatchingOut(video.rid, $outputs)}
             label={video.name || ""}
+            renameId="player_{video.rid}"
             title={video.id || ""}
+            showPlayOnHover
             on:click={(e) => {
                 if ($outLocked || e.ctrlKey || e.metaKey) return
+                if (e.target?.closest(".edit")) return
+
                 if (findMatchingOut(video.rid, $outputs)) {
-                    setOutput("background", null)
+                    clearBackground()
                     return
                 }
 
-                setOutput("background", { id: video.rid, type: "player", startAt: 0 })
+                setOutput("background", { id: video.rid, type: "player", muted: false, loop: false, startAt: 0 })
             }}
             on:dblclick={() => {
-                activeShow.set({ id: video.rid, type: "player" })
+                if ($focusMode) activeFocus.set({ id: video.rid })
+                else activeShow.set({ id: video.rid, type: "player" })
             }}
         >
             <SelectElem id="player" data={video.rid} draggable>

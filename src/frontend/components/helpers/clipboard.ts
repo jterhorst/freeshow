@@ -12,6 +12,8 @@ import {
     activeShow,
     activeStage,
     audioFolders,
+    audioPlaylists,
+    audioStreams,
     categories,
     clipboard,
     currentOutputSettings,
@@ -28,6 +30,7 @@ import {
     projects,
     refreshEditSlide,
     scriptures,
+    selectAllMedia,
     selected,
     shows,
     showsCache,
@@ -36,19 +39,20 @@ import {
     templateCategories,
     templates,
     themes,
+    triggers,
     variables,
     videoMarkers,
 } from "../../stores"
-import { newToast } from "../../utils/messages"
+import { newToast, triggerFunction } from "../../utils/common"
 import { removeSlide } from "../context/menuClick"
 import { deleteTimer } from "../drawer/timers/timers"
 import { setCaret } from "../edit/scripts/textStyle"
-import { clone } from "./array"
+import { clone, keysToID, removeDeleted, removeDuplicates } from "./array"
 import { pasteText } from "./caretHelper"
 import { history } from "./history"
+import { getFileName, removeExtension } from "./media"
 import { loadShows } from "./setShow"
 import { _show } from "./shows"
-import { getFileName, removeExtension } from "./media"
 
 export function copy({ id, data }: any = {}, getData: boolean = true) {
     let copy: any = { id, data }
@@ -107,6 +111,7 @@ export function cut(data: any = {}) {
 }
 
 export function deleteAction({ id, data }, type: string = "delete") {
+    console.log("DELETE", id, data)
     if (!deleteActions[id]) return false
     let deleted: any = deleteActions[id](data, type)
 
@@ -157,8 +162,6 @@ export function selectAll(data: any = {}) {
     if (selectId === "group" && !data?.length) selectId = "slide"
     if (selectId === "folder" && !data?.length) selectId = "project"
 
-    // WIP select scripture verses
-
     if (selectActions[selectId]) selectActions[selectId](data)
     else console.log("MISSING SELECT:", selectId)
 
@@ -188,6 +191,7 @@ const selectActions: any = {
         } else {
             data = showsList.filter((id) => {
                 let show = get(shows)[id]
+                if (!show) return false
                 if (activeTab === show.category) return true
                 if (activeTab !== "unlabeled") return false
                 if (show.category === null || !get(categories)[show.category]) return true
@@ -203,7 +207,7 @@ const selectActions: any = {
 
         data.forEach(({ id }: any) => {
             ref.forEach((b, i) => {
-                if (b.type === "child" ? id === b.parent.id : id === b.id) newSelection.push({ index: i })
+                if (b.type === "child" ? id === b.parent.id : id === b.id) newSelection.push({ index: i, showId: get(activeShow)?.id })
             })
         })
 
@@ -257,7 +261,7 @@ const selectActions: any = {
         let ref = _show().layouts("active").ref()[0]
         if (!ref?.length) return
 
-        newSelection = ref.map((_: any, index: number) => ({ index }))
+        newSelection = ref.map((_: any, index: number) => ({ index, showId: get(activeShow)?.id }))
 
         selected.set({ id: "slide", data: newSelection })
     },
@@ -285,6 +289,7 @@ const selectActions: any = {
         let newSelection: any[] = Object.values(get(scriptures)).map(({ id }) => id)
         selected.set({ id: "category_scripture", data: newSelection })
     },
+    scripture: () => triggerFunction("scripture_selectAll"),
     stage: () => {
         let newSelection: any[] = Object.keys(get(stageShows))
         newSelection = newSelection.map((id) => ({ id }))
@@ -295,7 +300,7 @@ const selectActions: any = {
         selected.set({ id: "folder", data: newSelection })
     },
     project: () => {
-        let newSelection: any[] = Object.keys(get(projects)).map((id) => ({ type: "project", id }))
+        let newSelection: any[] = removeDeleted(keysToID(get(projects))).map(({ id }) => ({ type: "project", id }))
         selected.set({ id: "project", data: newSelection })
     },
     show: () => {
@@ -322,6 +327,7 @@ const selectActions: any = {
 
         selected.set({ id: "template", data: newSelection })
     },
+    media: () => selectAllMedia.set(true),
 }
 
 const copyActions: any = {
@@ -372,7 +378,7 @@ const copyActions: any = {
         if (fullGroup) {
             // select all children of group
             ids = ref.filter((a) => ids.includes(a.parent?.id || a.id)).map((a) => a.id)
-            ids = [...new Set(ids)]
+            ids = removeDuplicates(ids)
         }
 
         let slides = clone(_show().slides(ids).get())
@@ -406,10 +412,10 @@ const copyActions: any = {
     },
     group: (data: any) => copyActions.slide(data, true),
     overlay: (data: any) => {
-        return data.map((id: string) => get(overlays)[id])
+        return data.map((id: string) => clone(get(overlays)[id]))
     },
     template: (data: any) => {
-        return data.map((id: string) => get(templates)[id])
+        return data.map((id: string) => clone(get(templates)[id]))
     },
 }
 
@@ -606,6 +612,7 @@ const deleteActions = {
         })
     },
     global_timer: (data: any) => deleteActions.timer(data),
+    // TODO: history
     variable: (data: any) => {
         variables.update((a) => {
             data.forEach(({ id }) => {
@@ -615,12 +622,50 @@ const deleteActions = {
             return a
         })
     },
+    trigger: (data: any) => {
+        triggers.update((a) => {
+            data.forEach(({ id }) => {
+                delete a[id]
+            })
+
+            return a
+        })
+    },
+    audio_stream: (data: any) => {
+        audioStreams.update((a) => {
+            data.forEach(({ id }) => {
+                delete a[id]
+            })
+
+            return a
+        })
+    },
+    audio: (data: any) => {
+        // remove audio from playlist
+        let activePlaylist = get(drawerTabsData).audio?.activeSubTab || ""
+        if (!activePlaylist) return
+
+        audioPlaylists.update((a) => {
+            let songs = clone(a[activePlaylist]?.songs || [])
+            data.forEach((song) => {
+                let currentSongIndex = songs.findIndex((a) => a === song.path)
+                if (currentSongIndex >= 0) songs.splice(currentSongIndex, 1)
+            })
+
+            a[activePlaylist].songs = songs
+
+            return a
+        })
+    },
     folder: (data: any) => historyDelete("UPDATE", data, { updater: "project_folder" }),
     project: (data: any) => historyDelete("UPDATE", data, { updater: "project" }),
     stage: (data: any) => historyDelete("UPDATE", data, { updater: "stage" }),
     category_shows: (data: any) => historyDelete("UPDATE", data, { updater: "category_shows" }),
     category_media: (data: any) => historyDelete("UPDATE", data, { updater: "category_media" }),
-    category_audio: (data: any) => historyDelete("UPDATE", data, { updater: "category_audio" }),
+    category_audio: (data: any) => {
+        if (get(audioPlaylists)[data[0]]) historyDelete("UPDATE", data, { updater: "audio_playlists" })
+        else historyDelete("UPDATE", data, { updater: "category_audio" })
+    },
     category_overlays: (data: any) => historyDelete("UPDATE", data, { updater: "category_overlays" }),
     category_templates: (data: any) => historyDelete("UPDATE", data, { updater: "category_templates" }),
     player: (data: any) => historyDelete("UPDATE", data, { updater: "player_video" }),
@@ -696,6 +741,10 @@ const deleteActions = {
                 delete a!.index
                 return a
             })
+
+            if (get(activeShow)!.type === "section") {
+                activeShow.set(null)
+            }
         }
 
         history({ id: "UPDATE", newData: { key: "shows", data: shows.filter((_a, i) => !indexes.includes(i)) }, oldData: { id: get(activeProject) }, location: { page: "show", id: "project_key" } })
@@ -741,8 +790,11 @@ const deleteActions = {
 
         currentOutputSettings.set(Object.keys(get(outputs))[0])
     },
+    tag: (data: any) => {
+        let tagId = data[0]?.id || ""
+        history({ id: "UPDATE", newData: { id: tagId }, location: { page: "show", id: "tag" } })
+    },
     chord: (data: any) => {
-        console.log(data)
         data = data[0]
 
         let item: any = _show().slides([data.slideId]).items([data.itemIndex]).get()[0][0]
@@ -791,7 +843,8 @@ const duplicateActions = {
         history({ id: "UPDATE", newData: { data: clone(stage) }, location: { page: "stage", id: "stage" } })
     },
     layout: (data: any) => {
-        let layoutId = data?.[0] || get(showsCache)[get(activeShow)!.id].settings.activeLayout
+        let layoutId = data?.[0] || get(showsCache)[get(activeShow)!.id]?.settings?.activeLayout
+        if (!layoutId) return
 
         let newLayout = clone(get(showsCache)[get(activeShow)!.id].layouts[layoutId])
         newLayout.name += " 2"
@@ -823,7 +876,7 @@ const duplicateActions = {
                     duplicateFolder(folder.id!, newId)
                 })
 
-                let projectList = Object.values(get(projects)).filter((a) => a.parent === oldParent)
+                let projectList = removeDeleted(keysToID(get(projects))).filter((a) => a.parent === oldParent)
                 projectList.forEach((project) => {
                     newProjects.push({ ...clone(project), parent: newParent })
                 })
@@ -872,6 +925,19 @@ const duplicateActions = {
             let output = clone(get(outputs)[id])
             id = uid()
             history({ id: "UPDATE", newData: { data: output, replace: { name: output.name + " 2" } }, oldData: { id }, location: { page: "settings", id: "settings_output" } })
+        })
+    },
+    action: (data: any) => {
+        midiIn.update((a) => {
+            data.forEach(({ id }) => {
+                let newAction = clone(get(midiIn)[id])
+                newAction.name += " 2"
+
+                let newId = uid()
+                a[newId] = newAction
+            })
+
+            return a
         })
     },
 }

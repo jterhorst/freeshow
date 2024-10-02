@@ -2,6 +2,7 @@
     import { activePopup, activeProject, activeTimers, dictionary, labelsDisabled, projects, showsCache, timers } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
+    import { clone, keysToID, sortByName } from "../../helpers/array"
     import Button from "../../inputs/Button.svelte"
     import Slider from "../../inputs/Slider.svelte"
     import Timer from "../../slide/views/Timer.svelte"
@@ -11,9 +12,7 @@
 
     export let searchValue
 
-    $: globalList = Object.entries($timers).map(([id, a]) => ({ ...a, id }))
-
-    $: sortedTimers = globalList.sort((a, b) => a.name.localeCompare(b.name))
+    $: sortedTimers = sortByName(sortByName(keysToID(clone($timers))), "type")
     $: sortedTimersWithProject = sortedTimers.sort((a, b) => (list.includes(a.id) && !list.includes(b.id) ? -1 : 1))
     $: filteredTimers = searchValue.length > 1 ? sortedTimersWithProject.filter((a) => a.name.toLowerCase().includes(searchValue.toLowerCase())) : sortedTimersWithProject
 
@@ -25,14 +24,11 @@
         list = await loadProjectTimers(projectShows)
     }
 
-    // TODO: check overlays
-
     let today = new Date()
     setInterval(() => (today = new Date()), 1000)
 
     function getCurrentValue(timer: any, ref: any, _updater: any) {
         let currentTime = getCurrentTimerValue(timer, ref, today)
-        console.log(currentTime)
         // if (timer.end < timer.start) currentTime = timer.start - currentTime
         return currentTime
     }
@@ -42,13 +38,15 @@
         activeTimers.update((a) => {
             let index = a.findIndex((timer) => (ref.showId ? ref.showId === timer.showId && ref.slideId === timer.slideId && ref.id === timer.id : timer.id === ref.id))
             if (index < 0) a.push({ ...timer, ...ref, currentTime: time, paused: true })
-            else a[index].currentTime = time
+            else {
+                a[index].currentTime = time
+                delete a[index].startTime
+            }
+
             return a
         })
     }
 </script>
-
-<!-- TODO: sort by type (category) -->
 
 {#if filteredTimers.length}
     <div class="timers">
@@ -114,7 +112,6 @@
 {/if}
 
 <div style="display: flex;background-color: var(--primary-darkest);">
-    <!-- TODO: enable!! -->
     <Button style="flex: 1;" on:click={() => activePopup.set("timer")} center title={$dictionary.new?.timer}>
         <Icon id="add" right={!$labelsDisabled} />
         {#if !$labelsDisabled}<T id="new.timer" />{/if}

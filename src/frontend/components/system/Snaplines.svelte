@@ -26,7 +26,7 @@
 
         if (moveCondition) [styles, lines] = moveBox(e, mouse, ratio, active, lines)
         else if (mouse.e.target.closest(".square")) {
-            styles = resizeBox(e, mouse, square, ratio)
+            styles = resizeBox(e, mouse, square, ratio, lines)
             if (!e.altKey) [styles, lines] = moveBox(null, mouse, ratio, active, lines, styles)
         }
 
@@ -57,7 +57,7 @@
         position: absolute;
         top: 0;
         left: 0;
-        z-index: 10;
+        z-index: 1000;
         background-color: var(--secondary);
     }
     .line.x {

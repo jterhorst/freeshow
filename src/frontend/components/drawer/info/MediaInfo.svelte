@@ -1,6 +1,9 @@
 <script lang="ts">
-    import { FILE_INFO } from "../../../../types/Channels"
-    import { activeShow, drawerTabsData } from "../../../stores"
+    import { onDestroy } from "svelte"
+    import { uid } from "uid"
+    import { FILE_INFO, MAIN } from "../../../../types/Channels"
+    import { activeRecording, activeShow, drawerTabsData } from "../../../stores"
+    import { send } from "../../../utils/request"
     import { formatBytes } from "../../helpers/bytes"
     import { getFileName, removeExtension } from "../../helpers/media"
     import T from "../../helpers/T.svelte"
@@ -9,29 +12,33 @@
     import PlayerInfo from "./PlayerInfo.svelte"
 
     $: name = $activeShow?.name || ""
-    $: if ($activeShow?.id && ["media", "image", "video"].includes($activeShow.type || "")) {
+    $: if ($activeShow?.id && ["media", "image", "video"].includes($activeShow.type || "") && !$activeShow?.id.includes("http")) {
         info = {}
-        window.api.send(FILE_INFO, $activeShow?.id)
+        send(MAIN, ["FILE_INFO"], $activeShow?.id)
     }
 
+    let listenerId = uid()
+    onDestroy(() => window.api.removeListener(FILE_INFO, listenerId))
+
     let info: any = {}
-    window.api.receive(FILE_INFO, (data: any) => {
+    window.api.receive(FILE_INFO, receiveContent, listenerId)
+    function receiveContent(data: any) {
         info = { ...data.stat, extension: data.extension }
         if (!name) name = removeExtension(getFileName(data.path))
-    })
+    }
 
     // $: accessed = info.atime
 
     $: subTab = $drawerTabsData.media?.activeSubTab
 </script>
 
-{#if subTab === "online"}
-    <PlayerInfo />
-{:else if subTab === "screens"}
+{#if subTab === "screens" || $activeRecording}
     <LiveInfo />
+{:else if subTab === "online"}
+    <PlayerInfo />
 {:else}
     <main style="overflow-y: auto;">
-        <h2 style="text-align: center" title={name}>
+        <h2 style="text-align: center;padding: 0 5px;" title={name}>
             {#if name.length}
                 {name}
             {:else}
@@ -51,7 +58,7 @@
         <p>
             <span class="title"><T id={"info.created"} /></span>
             {#if info.birthtime}
-                <Date d={info.birthtime} />
+                <span><Date d={info.birthtime} /></span>
             {:else}
                 <span>-</span>
             {/if}
@@ -59,7 +66,7 @@
         <p>
             <span class="title"><T id={"info.modified"} /></span>
             {#if info.mtime}
-                <Date d={info.mtime} />
+                <span><Date d={info.mtime} /></span>
             {:else}
                 <span>-</span>
             {/if}
@@ -68,7 +75,7 @@
             <span class="title"><T id={"info.changed"} /></span>
             {#if info.ctime}
                 <!-- format="d,m,y" -->
-                <Date d={info.ctime} />
+                <span><Date d={info.ctime} /></span>
             {:else}
                 <span>-</span>
             {/if}
@@ -79,15 +86,22 @@
 <style>
     main {
         overflow-y: auto;
-        padding: 10px;
     }
 
-    p {
+    main p {
         display: flex;
         justify-content: space-between;
+        padding: 2px 10px;
+        gap: 5px;
+    }
+    main p:nth-child(even) {
+        background-color: var(--primary-darker);
     }
 
     .title {
+        font-weight: 600;
+    }
+    main p span:not(.title) {
         opacity: 0.8;
     }
 </style>

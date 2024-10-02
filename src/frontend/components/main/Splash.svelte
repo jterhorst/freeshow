@@ -1,16 +1,26 @@
 <script lang="ts">
-    import { activePopup, activeProject, dictionary, version } from "../../stores"
+    import { activePopup, activeProject, dictionary, projects, projectView, version } from "../../stores"
     import { history } from "../helpers/history"
     import Icon from "../helpers/Icon.svelte"
     import T from "../helpers/T.svelte"
     import Button from "../inputs/Button.svelte"
     import Link from "../inputs/Link.svelte"
     import Center from "../system/Center.svelte"
+
+    function createProject() {
+        // if opened project is empty go to project list (to reduce confusion)
+        if ($projects[$activeProject || ""]?.shows?.length === 0) {
+            activeProject.set(null)
+            projectView.set(true)
+        }
+
+        history({ id: "UPDATE", location: { page: "show", id: "project" } })
+    }
 </script>
 
 <Center>
     <h1>FreeShow</h1>
-    <p>v{$version}</p>
+    <p style="opacity: 0.8;">v{$version}</p>
     <p style="padding: 30px">
         <Link url="https://freeshow.app/docs">
             <T id="main.docs" />
@@ -19,9 +29,9 @@
     </p>
 
     <span class="buttons">
-        <Button on:click={() => history({ id: "UPDATE", location: { page: "show", id: "project" } })} title={$dictionary.tooltip?.project} dark>
+        <Button on:click={createProject} title={$dictionary.tooltip?.project} dark>
             <Icon id="project" right />
-            <T id="new.project" />
+            <p><T id="new.project" /></p>
         </Button>
         <Button
             on:click={(e) => {
@@ -33,7 +43,7 @@
             dark
         >
             <Icon id="add" right />
-            <T id="new.show" />
+            <p><T id="new.show" /></p>
         </Button>
     </span>
 </Center>
@@ -45,7 +55,6 @@
     }
 
     p {
-        opacity: 0.8;
         overflow: initial;
     }
 
@@ -60,5 +69,21 @@
     color: var(--secondary-text);
     font-size: 1em;
     margin: 10px; */
+    }
+
+    @media screen and (max-height: 500px) {
+        h1 {
+            font-size: 3em;
+        }
+    }
+    @media screen and (max-height: 400px) {
+        h1 {
+            font-size: 2em;
+        }
+    }
+    @media screen and (max-width: 800px) {
+        h1 {
+            font-size: 2em;
+        }
     }
 </style>

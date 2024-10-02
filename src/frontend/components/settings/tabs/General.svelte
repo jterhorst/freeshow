@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { alertUpdates, autoOutput, autosave, labelsDisabled, timeFormat } from "../../../stores"
+    import { activePopup, alertUpdates, autoOutput, autosave, labelsDisabled, special, timeFormat } from "../../../stores"
     import { setLanguage } from "../../../utils/language"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
@@ -12,8 +12,10 @@
     const inputs: any = {
         timeFormat: (e: any) => timeFormat.set(e.target.checked ? "24" : "12"),
         updates: (e: any) => alertUpdates.set(e.target.checked),
+        autoUpdates: (e: any) => updateSpecial(e.target.checked, "autoUpdates"),
         labels: (e: any) => labelsDisabled.set(e.target.checked),
         autoOutput: (e: any) => autoOutput.set(e.target.checked),
+        hideCursor: (e: any) => updateSpecial(e.target.checked, "hideCursor"),
     }
 
     const autosaveList: any = [
@@ -25,14 +27,27 @@
         { id: "30min", name: "30 $:settings.minutes:$" },
     ]
 
-    // const projectNames: any[] = ["date", "today", "sunday", "week", "custom", "blank"].map((id) => ({ name: "$:projectName.${" + id + "}:$", id }))
+    function updateSpecial(value, key) {
+        special.update((a) => {
+            if (key === "hideCursor" && !value) delete a[key]
+            else a[key] = value
+
+            return a
+        })
+    }
 
     function reset() {
-        setLanguage(null)
+        setLanguage()
         timeFormat.set("24")
         alertUpdates.set(true)
         autoOutput.set(false)
         labelsDisabled.set(false)
+
+        special.update((a) => {
+            delete a.hideCursor
+            delete a.autoUpdates
+            return a
+        })
     }
 
     // WIP set calendar starting day
@@ -47,6 +62,7 @@
     <p><T id="settings.autosave" /></p>
     <Dropdown options={autosaveList} value={autosaveList.find((a) => a.id === ($autosave || "never"))?.name || ""} on:click={(e) => autosave.set(e.detail.id)} />
 </CombinedInput>
+
 <CombinedInput>
     <p><T id="settings.use24hClock" /></p>
     <div class="alignRight">
@@ -57,6 +73,12 @@
     <p><T id="settings.alert_updates" /></p>
     <div class="alignRight">
         <Checkbox checked={$alertUpdates} on:change={inputs.updates} />
+    </div>
+</CombinedInput>
+<CombinedInput>
+    <p><T id="settings.auto_updates" /></p>
+    <div class="alignRight">
+        <Checkbox checked={$special.autoUpdates !== false} on:change={inputs.autoUpdates} />
     </div>
 </CombinedInput>
 <CombinedInput>
@@ -71,65 +93,23 @@
         <Checkbox checked={$autoOutput} on:change={inputs.autoOutput} />
     </div>
 </CombinedInput>
+<CombinedInput>
+    <p><T id="settings.hide_cursor_in_output" /></p>
+    <div class="alignRight">
+        <Checkbox checked={$special.hideCursor} on:change={inputs.hideCursor} />
+    </div>
+</CombinedInput>
 
-<!-- <hr /> -->
-<!-- <div>
-  <p><T id="settings.default_project_name" /></p>
-  <Dropdown
-    options={projectNames}
-    value={$defaultProjectName}
-    on:click={(e) => {
-      // history?
-      defaultProjectName.set(e.detail.id)
-    }}
-  />
-</div> -->
-
-<!-- TODO: video / image extensions -->
-<!-- <div>
-  <p><T id="settings.video_extensions" /></p>
-  <span class="flex">
-    <span style="text-transform: uppercase;margin-right: 10px;">
-      {#each $videoExtensions as extension, i}
-        {#if i > 0},&nbsp;{/if}<span class="hoverDelete" on:click={() => videoExtensions.set($videoExtensions.filter((a) => a !== extension))}>{extension}</span>
-      {/each}
-    </span>
-    <TextInput value={value.video} on:input={(e) => changeValue(e, "video")} light />
-    <Button
-      on:click={() => {
-        if (!$videoExtensions.includes(value.video.toLowerCase())) {
-          videoExtensions.set([...$videoExtensions, value.video.toLowerCase()])
-          value.video = ""
-        }
-      }}
-    >
-      <p><T id="settings.add" /></p>
+<CombinedInput>
+    <Button style="width: 50%;" on:click={() => activePopup.set("manage_colors")}>
+        <Icon id="color" style="border: 0;" right />
+        <p style="padding: 0;"><T id="popup.manage_colors" /></p>
     </Button>
-  </span>
-</div>
-<div>
-  <p><T id="settings.image_extensions" /></p>
-  <span class="flex">
-    <span style="text-transform: uppercase;margin-right: 10px;">
-      {#each $imageExtensions as extension, i}
-        {#if i > 0},&nbsp;{/if}<span class="hoverDelete" on:click={() => imageExtensions.set($imageExtensions.filter((a) => a !== extension))}>{extension}</span>
-      {/each}
-    </span>
-    <TextInput value={value.image} on:input={(e) => changeValue(e, "image")} light />
-    <Button
-      on:click={() => {
-        if (!$imageExtensions.includes(value.image.toLowerCase())) {
-          imageExtensions.set([...$imageExtensions, value.image.toLowerCase()])
-          value.image = ""
-        }
-      }}
-    >
-      <p><T id="settings.add" /></p>
+    <Button on:click={() => activePopup.set("manage_icons")}>
+        <Icon id="star" style="border: 0;" right />
+        <p style="padding: 0;"><T id="popup.manage_icons" /></p>
     </Button>
-  </span>
-</div> -->
-
-<!-- project store location... -->
+</CombinedInput>
 
 <div class="filler" />
 <div class="bottom">

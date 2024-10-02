@@ -4,13 +4,16 @@
     import Button from "./components/Button.svelte"
     import Icon from "./components/Icon.svelte"
     import Slide from "./components/Slide.svelte"
-    import { activeTimers, events, timeFormat, timers } from "./store"
+    import { activeTimers, events, progressData, timeFormat, timers, variables } from "./store"
 
     // TODO: translate
     const lang: any = {
         empty: {
             shows: "No shows",
         },
+        // edit: {
+        //     transpose: "Transpose",
+        // },
         error: {
             wrongPass: "Wrong password!",
             missingID: "Something went wrong, try again!",
@@ -26,6 +29,11 @@
         console.log(id)
         socket.emit("STAGE", { id, channel: "SHOWS" })
     })
+
+    // select stage by link query
+    const urlParams = new URLSearchParams(window.location.search)
+    const nameQuery = urlParams.get("name")
+    const idQuery = urlParams.get("id")
 
     let id: null | string = null
     let shows: any = null
@@ -58,8 +66,10 @@
         }
     }
 
+    let stream: any = {}
+
     socket.on("STAGE", (msg) => {
-        console.log(msg)
+        if (msg.channel !== "BACKGROUND") console.log(msg)
         switch (msg.channel) {
             case "ERROR":
                 setError(lang.error[msg.data])
@@ -85,6 +95,13 @@
                     } else showRef = { id: msg.data[0].id }
                 } else {
                     shows = msg.data
+
+                    if (idQuery) showRef = { id: idQuery }
+                    else if (nameQuery) {
+                        let matchingLayout = shows.find((a: any) => a.name.replaceAll(" ", "").toLowerCase() === nameQuery.toLowerCase())
+                        if (matchingLayout) showRef = { id: matchingLayout.id }
+                    }
+
                     if (showRef) {
                         let index = shows.findIndex((s: any) => s.id === showRef.id)
                         if (index < 0 || shows[index].disabled === true) showRef = null
@@ -111,9 +128,12 @@
                 break
             case "SLIDES":
                 slides = msg.data
+
+                // SlideProgress item
+                socket.emit("STAGE", { id, channel: "REQUEST_PROGRESS", data: { outputId: msg.data.outputId } })
                 break
             case "BACKGROUND":
-                background.path = msg.data.path
+                background = msg.data
                 break
 
             // data
@@ -123,8 +143,20 @@
             case "TIMERS":
                 timers.set(msg.data)
                 break
+            case "VARIABLES":
+                variables.set(msg.data)
+                break
             case "ACTIVE_TIMERS":
                 activeTimers.set(msg.data)
+                break
+            case "REQUEST_PROGRESS":
+                progressData.set(msg.data)
+                break
+            case "REQUEST_STREAM":
+                stream[msg.data.alpha ? "alpha" : "default"] = msg.data.stream
+                setTimeout(() => {
+                    socket.emit("STAGE", { id, channel: "REQUEST_STREAM", data: { outputId: msg.data.outputId, alpha: msg.data.alpha } })
+                }, 300)
                 break
 
             default:
@@ -138,8 +170,16 @@
 
     let clicked: boolean = false
     const click = (e: any) => {
-        if (!e.target.closest(".clicked")) clicked = !clicked
+        if (e.target.closest(".clicked")) return
+
+        // wait for actions to maybe open
+        setTimeout(() => {
+            if (document.querySelector(".actions")?.children?.length) return
+
+            clicked = !clicked
+        })
     }
+
     let timeout: any = null
     $: {
         if (clicked) {
@@ -166,7 +206,7 @@
     }
 </script>
 
-<svelte:window on:mousedown={click} />
+<svelte:window on:click={click} />
 
 {#if errors.length}
     <div class="error">
@@ -237,7 +277,7 @@
     {show.name}
     home
   </div> -->
-    <Slide {show} {slides} {background} />
+    <Slide {show} {slides} socketId={id} {socket} {stream} {background} />
     {#if clicked}
         <div class="clicked">
             <h5 style="text-align: center;">{show.name}</h5>

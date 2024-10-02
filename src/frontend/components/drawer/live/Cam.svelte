@@ -13,6 +13,7 @@
     }
     export let cam: Cam
     export let item: boolean = false
+    export let style: string = ""
 
     let loaded: boolean = false
     // $: active = $outBackground?.type === "camera" && $outBackground.id === cam.id
@@ -43,6 +44,8 @@
         navigator.mediaDevices
             .getUserMedia(constraints)
             .then((mediaStream) => {
+                if (!videoElem) return
+
                 videoElem.srcObject = mediaStream
                 loaded = true
                 videoElem.play()
@@ -70,12 +73,12 @@
 
 {#if item}
     {#if !error}
-        <video style="width: 100%;height: 100%;" bind:this={videoElem}>
+        <video style="width: 100%;height: 100%;{style}" bind:this={videoElem}>
             <track kind="captions" />
         </video>
     {/if}
 {:else}
-    <Card class="context #live_card" {loaded} outlineColor={findMatchingOut(cam.id, $outputs)} active={findMatchingOut(cam.id, $outputs) !== null} on:click label={cam.name} icon="camera" white={!cam.id.includes("cam")}>
+    <Card class="context #live_card" {loaded} outlineColor={findMatchingOut(cam.id, $outputs)} active={findMatchingOut(cam.id, $outputs) !== null} on:click label={cam.name} icon="camera" white={!cam.id.includes("cam")} showPlayOnHover>
         <SelectElem id="camera" data={{ id: cam.id, type: "camera", name: cam.name, cameraGroup: cam.group }} draggable>
             {#if error}
                 <div class="error">

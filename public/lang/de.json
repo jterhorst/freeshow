@@ -262,6 +262,8 @@
     "inputs": {
         "name": "Name",
         "url": "URL",
+        "method": "Übertragungs Methode",
+        "payload": "Daten",
         "video_id": "Video ID/URL",
         "close_ad": "Anzeige auf dem Ausgabebildschirm schließen",
         "change_folder": "Wähle einen anderen Speicherort"
@@ -330,6 +332,7 @@
         "animate": "Animate",
         "next_timer": "Timer zur nächsten Folie",
         "import": "Importieren",
+        "songbeamer_import": "Songbeamer Importieren",
         "export": "Exportieren",
         "importing": "Importiere",
         "import_scripture": "Importiere Bibel",
@@ -372,7 +375,7 @@
         "no_name": "No name",
         "media_replaced": "Missing media file replaced with match.",
         "lyrics_undefined": "Could not find any lyrics!",
-        "lyrics_copied": "Lyrics copied from Genius!",
+        "lyrics_copied": "Lyrics copied from ",
         "no_pdf_linux": "Can't export as PDF on Linux.",
         "one_output": "You have to have at least one active output!",
         "empty_cache": "Cache is empty.",
@@ -492,6 +495,7 @@
         "send_midi": "Send MIDI out",
         "delete_shows_not_indexed": "Delete shows in 'Shows' folder that are not indexed",
         "delete_thumbnail_cache": "Delete thumbnail cache",
+        "open_log_file": "Open log file",
         "refresh_all_shows": "Get all shows in 'Shows' folder",
         "start_timer": "Start timer",
         "stop_timers": "Stop active timers",
@@ -1000,5 +1004,20 @@
         "words": "Wörter",
         "template": "Vorlage",
         "category": "Kategorie"
+    },
+    "songbeamer_import": {
+        "options": "Optionen",
+        "encoding": "Codierung",
+        "older_versions": "Für Songbeamer Versionen älter als 6.02a",
+        "category": "Kategorie",
+        "utf8": "UTF-8",
+        "latin1": "Latin 1",
+        "translations": "Übersetzungen",
+        "translation_multiline": "Mehrzeilig",
+        "translation_textboxes": "Textboxen",
+        "translation_layouts": "Layouts",
+        "translation_description_multiline": "Fügt alle Sprachen in eine einzelne Textbox in abwechselnden Zeilen ein. (Wie in Songbeamer)",
+        "translation_description_textboxes": "Fügt jede Sprache in eine separate Textbox auf der Folie ein.",
+        "translation_description_layouts": "Erstellt für jede Sprache eigene Slides und ein eigenes Layout nur für diese Sprache."
     }
 }

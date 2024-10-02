@@ -1,7 +1,7 @@
 import { NDI } from "../../types/Channels"
 import { Message } from "../../types/Socket"
-import { customFramerates, updateFramerate } from "./capture"
-import { findStreamsNDI, receiveStreamNDI, stopReceiversNDI } from "./ndi"
+import { CaptureHelper } from "../capture/CaptureHelper"
+import { NdiReceiver } from "./NdiReceiver"
 
 export async function receiveNDI(e: any, msg: Message) {
     let data: any = {}
@@ -11,9 +11,10 @@ export async function receiveNDI(e: any, msg: Message) {
 }
 
 export const ndiResponses: any = {
-    RECEIVE_LIST: async () => await findStreamsNDI(),
-    RECEIVE_STREAM: (data: any) => receiveStreamNDI(data),
-    RECEIVE_DESTROY: () => stopReceiversNDI(),
+    RECEIVE_LIST: async () => await NdiReceiver.findStreamsNDI(),
+    RECEIVE_STREAM: (data: any) => NdiReceiver.receiveStreamFrameNDI(data),
+    CAPTURE_STREAM: (data: any) => NdiReceiver.captureStreamNDI(data),
+    CAPTURE_DESTROY: (data: any) => NdiReceiver.stopReceiversNDI(data),
 
     NDI_DATA: (data: any) => setDataNDI(data),
 
@@ -26,9 +27,9 @@ export function setDataNDI(data: any) {
     if (!data?.id) return
 
     if (data.framerate) {
-        if (!customFramerates[data.id]) customFramerates[data.id] = {}
-        customFramerates[data.id].ndi = data.framerate
+        if (!CaptureHelper.customFramerates[data.id]) CaptureHelper.customFramerates[data.id] = {}
+        CaptureHelper.customFramerates[data.id].ndi = data.framerate
 
-        updateFramerate(data.id)
+        CaptureHelper.updateFramerate(data.id)
     }
 }

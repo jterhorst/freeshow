@@ -5,9 +5,11 @@ export interface Projects {
 }
 export interface Project {
     id?: string
+    deleted?: boolean // cloud sync deleted
     name: string
     notes?: string // pre v0.6.1
     created: number
+    modified?: number // used for cloud sync updates
     parent: string
     shows: ProjectShowRef[]
 }
@@ -19,6 +21,8 @@ export interface ProjectShowRef extends ShowRef {
     loop?: boolean
     filter?: any[]
     notes?: string
+    icon?: string // focus mode
+    data?: any // pdf viewports
 }
 
 export interface ShowRef {
@@ -36,8 +40,10 @@ export interface Folders {
 }
 export interface Folder {
     id?: string
+    deleted?: boolean // cloud sync deleted
     name: string
     created?: number
+    modified?: number // used for cloud sync updates
     parent: string
     type?: "folder"
 }

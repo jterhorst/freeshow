@@ -1,51 +1,54 @@
 import { get } from "svelte/store"
-import { MAIN } from "../../types/Channels"
+import { MAIN, STORE } from "../../types/Channels"
+import type { Output } from "../../types/Output"
 import { clone, keysToID } from "../components/helpers/array"
-import { displayOutputs, setOutput } from "../components/helpers/output"
+import { checkWindowCapture, displayOutputs, setOutput } from "../components/helpers/output"
 import { defaultThemes } from "../components/settings/tabs/defaultThemes"
 import {
     activePopup,
     activeProject,
     alertUpdates,
     audioFolders,
+    audioPlaylists,
+    audioStreams,
     autoOutput,
     autosave,
+    bibleApiKey,
     calendarAddShow,
     categories,
+    companion,
     customizedIcons,
-    defaultProjectName,
+    dataPath,
     disabledServers,
     drawSettings,
     drawer,
     drawerTabsData,
     driveData,
-    exportPath,
     formatNewShow,
     fullColors,
     gain,
+    globalTags,
     groupNumbers,
     groups,
     imageExtensions,
     labelsDisabled,
     language,
     loaded,
+    loadedState,
     lockedOverlays,
     mediaFolders,
     mediaOptions,
+    metronome,
     midiIn,
     openedFolders,
-    os,
     outLocked,
     overlayCategories,
     overlays,
     playerVideos,
     ports,
-    presenterControllerKeys,
     projectView,
-    recordingPath,
     remotePassword,
     resized,
-    scripturePath,
     serverData,
     showsPath,
     slidesOptions,
@@ -57,25 +60,30 @@ import {
     themes,
     timeFormat,
     timers,
+    triggers,
     variables,
+    version,
     videoExtensions,
     videoMarkers,
-    webFavorites,
+    videosData,
+    videosTime,
 } from "../stores"
 import { OUTPUT } from "./../../types/Channels"
 import type { SaveListSettings, SaveListSyncedSettings } from "./../../types/Save"
 import { currentWindow, maxConnections, outputs, scriptureSettings, scriptures, splitLines, transitionData, volume } from "./../stores"
 import { setLanguage } from "./language"
 import { send } from "./request"
-import type { Output } from "../../types/Output"
+import { checkForUpdates } from "./checkForUpdates"
 
 export function updateSyncedSettings(data: any) {
     if (!data || !Object.keys(data).length) return
 
     Object.entries(data).forEach(([key, value]: any) => {
         if (updateList[key as SaveListSyncedSettings]) updateList[key as SaveListSyncedSettings](value)
-        else console.log("MISSING: ", key)
+        else console.info("RECEIVED UNKNOWN SETTINGS KEY:", key)
     })
+
+    loadedState.set([...get(loadedState), "synced_settings"])
 }
 
 export function updateSettings(data: any) {
@@ -83,7 +91,7 @@ export function updateSettings(data: any) {
 
     Object.entries(data).forEach(([key, value]: any) => {
         if (updateList[key as SaveListSettings]) updateList[key as SaveListSettings](value)
-        else console.log("MISSING: ", key)
+        else console.info("RECEIVED UNKNOWN SETTINGS KEY:", key)
     })
 
     if (get(currentWindow)) return
@@ -99,19 +107,24 @@ export function updateSettings(data: any) {
         })
 
         // remove "ghost" key outputs (they were not removed in versions pre 0.9.6)
-        outputs.update((a) => {
-            outputsList.forEach((output) => {
-                if (!output.isKeyOutput || activeKeyOutputs.includes(output.id!)) return
-                delete a[output.id!]
-            })
+        let allOutputs = get(outputs)
+        let outputsUpdated: boolean = false
+        Object.keys(allOutputs).forEach((outputId) => {
+            let output = allOutputs[outputId]
+            if (!output.isKeyOutput || activeKeyOutputs.includes(output.id!)) return
 
-            return a
+            delete allOutputs[outputId][output.id!]
+            outputsUpdated = true
         })
+        if (outputsUpdated) outputs.set(allOutputs)
 
-        restartOutputs()
+        // wait until content is loaded
+        setTimeout(() => {
+            restartOutputs()
+            if (get(autoOutput)) setTimeout(() => displayOutputs({}, true), 500)
+            checkWindowCapture()
+        }, 1500)
     }
-    // if (data.outputPosition) send(OUTPUT, ["POSITION"], data.outputPosition)
-    // if (data.autoOutput) send(OUTPUT, ["DISPLAY"], { enabled: true, screen: data.outputScreen })
 
     // remote
     let disabled = data.disabledServers || {}
@@ -138,17 +151,33 @@ export function updateSettings(data: any) {
 
     loaded.set(true)
 
-    // setTimeout(() => {
     window.api.send("LOADED")
-    // }, 800)
 }
 
 export function restartOutputs() {
-    keysToID(get(outputs))
+    let data = clone(videosData)
+    let time = clone(videosTime)
+
+    let allOutputs = keysToID(get(outputs))
+    allOutputs
         .filter((a) => a.enabled)
-        .forEach((output: any) => {
-            send(OUTPUT, ["CREATE"], { ...output, rate: get(special).previewRate || "auto" })
+        .forEach((output: Output) => {
+            // key output styling
+            if (output.isKeyOutput) {
+                let parentOutput = allOutputs.find((a) => a.keyOutput === output.id)
+                if (parentOutput) output = { ...parentOutput, ...output }
+            }
+
+            // , rate: get(special).previewRate || "auto"
+            send(OUTPUT, ["CREATE"], output)
         })
+
+    // restore output video data when recreating window
+    // WIP values are empty when sent
+    setTimeout(() => {
+        send(OUTPUT, ["DATA"], data)
+        send(OUTPUT, ["TIME"], time)
+    }, 2200)
 }
 
 export function updateThemeValues(themes: any) {
@@ -156,10 +185,15 @@ export function updateThemeValues(themes: any) {
 
     Object.entries(themes.colors).forEach(([key, value]: any) => document.documentElement.style.setProperty("--" + key, value))
     Object.entries(themes.font).forEach(([key, value]: any) => {
-        // || themeId === "default"
         if (key === "family" && (!value || value === "sans-serif")) value = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif'
         document.documentElement.style.setProperty("--font-" + key, value)
     })
+
+    // border radius
+    if (!themes.border) themes.border = {}
+    // set to 0 if nothing is set
+    if (themes.border?.radius === undefined) themes.border.radius = "0"
+    Object.entries(themes.border).forEach(([key, value]: any) => document.documentElement.style.setProperty("--border-" + key, value))
 }
 
 const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = {
@@ -176,18 +210,13 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     showsPath: (v: any) => {
         if (!v) send(MAIN, ["SHOWS_PATH"])
         else showsPath.set(v)
+
+        // LOAD SHOWS FROM FOLDER
+        send(STORE, ["SHOWS"], { showsPath: v })
     },
-    exportPath: (v: any) => {
-        if (!v) send(MAIN, ["EXPORT_PATH"])
-        else exportPath.set(v)
-    },
-    scripturePath: (v: any) => {
-        if (!v) send(MAIN, ["SCRIPTURE_PATH"])
-        else scripturePath.set(v)
-    },
-    recordingPath: (v: any) => {
-        if (!v) send(MAIN, ["RECORDING_PATH"])
-        else recordingPath.set(v)
+    dataPath: (v: any) => {
+        if (!v) send(MAIN, ["DATA_PATH"])
+        else dataPath.set(v)
     },
     lockedOverlays: (v: any) => {
         // only get locked overlays
@@ -196,28 +225,17 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
         lockedOverlays.set(v)
 
         // start overlays
-        setOutput("overlays", v, false, null, true)
+        if (v.length) setOutput("overlays", v, false, "", true)
     },
-    os: (v: any) => {
-        if (!v.platform) send(MAIN, ["GET_OS"])
-        os.set(v)
-    },
-    // TODO: get device lang
     language: (v: any) => {
         language.set(v)
         setLanguage(v)
     },
-    // events: (v: any) => events.set(v),
-    alertUpdates: (v: any) => alertUpdates.set(v === false ? false : true),
-    autoOutput: (v: any) => {
-        autoOutput.set(v)
-
-        if (v) {
-            setTimeout(() => {
-                displayOutputs({}, true)
-            }, 500)
-        }
+    alertUpdates: (v: any) => {
+        alertUpdates.set(v !== false)
+        checkForUpdates(get(version))
     },
+    autoOutput: (v: any) => autoOutput.set(v),
     maxConnections: (v: any) => maxConnections.set(v),
     ports: (v: any) => ports.set(v),
     disabledServers: (v: any) => disabledServers.set(v),
@@ -234,7 +252,6 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     styles: (v: any) => styles.set(v),
     remotePassword: (v: any) => remotePassword.set(v),
     audioFolders: (v: any) => audioFolders.set(v),
-    defaultProjectName: (v: any) => defaultProjectName.set(v),
     categories: (v: any) => categories.set(v),
     drawer: (v: any) => drawer.set(v),
     drawerTabsData: (v: any) => drawerTabsData.set(v),
@@ -249,7 +266,6 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     openedFolders: (v: any) => openedFolders.set(v),
     outLocked: (v: any) => outLocked.set(v),
     overlayCategories: (v: any) => overlayCategories.set(v),
-    presenterControllerKeys: (v: any) => presenterControllerKeys.set(v),
     playerVideos: (v: any) => playerVideos.set(v),
     resized: (v: any) => resized.set(v),
     scriptures: (v: any) => scriptures.set(v),
@@ -257,19 +273,20 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     slidesOptions: (v: any) => slidesOptions.set(v),
     splitLines: (v: any) => splitLines.set(v),
     templateCategories: (v: any) => templateCategories.set(v),
-    // templates: (v: any) => templates.set(v),
     timers: (v: any) => timers.set(v),
     variables: (v: any) => variables.set(v),
+    triggers: (v: any) => triggers.set(v),
+    audioStreams: (v: any) => audioStreams.set(v),
+    audioPlaylists: (v: any) => audioPlaylists.set(v),
     theme: (v: any) => theme.set(v),
     transitionData: (v: any) => transitionData.set(v),
-    // themes: (v: any) => themes.set(v),
     imageExtensions: (v: any) => {
         // set this in case it's not up to date with stores
         if (!v.includes("webp")) v.push("webp")
+        if (!v.includes("avif")) v.push("avif")
         imageExtensions.set(v)
     },
     videoExtensions: (v: any) => videoExtensions.set(v),
-    webFavorites: (v: any) => webFavorites.set(v),
     volume: (v: any) => volume.set(v),
     gain: (v: any) => gain.set(v),
     midiIn: (v: any) => midiIn.set(v),
@@ -277,5 +294,24 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     customizedIcons: (v: any) => customizedIcons.set(v),
     driveData: (v: any) => driveData.set(v),
     calendarAddShow: (v: any) => calendarAddShow.set(v),
-    special: (v: any) => special.set(v),
+    metronome: (v: any) => metronome.set(v),
+    globalTags: (v: any) => globalTags.set(v),
+    companion: (v: any) => {
+        companion.set(v)
+
+        if (v.enabled) {
+            setTimeout(() => {
+                send(MAIN, ["WEBSOCKET_START"], get(ports).companion)
+            }, 3000)
+        }
+    },
+    bibleApiKey: (a: any) => {
+        // this is so users can manually add their own key
+        if (a) bibleApiKey.set(a)
+    },
+    special: (v: any) => {
+        if (v.capitalize_words === undefined) v.capitalize_words = "Jesus, Lord" // God
+        if (v.autoUpdates !== false) send(MAIN, ["AUTO_UPDATE"])
+        special.set(v)
+    },
 }
